@@ -8,12 +8,17 @@ import {
   AlertTriangle, ArrowLeft, ArrowRight, BadgeInfo, Barcode, Boxes, Calendar, CalendarX2,
   Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, CircleDot, ClipboardCheck,
   Clock, Copy, ExternalLink, Eye, FileImage, FileText, Loader2, Minus, MoreHorizontal, Package2, Store,
-  PackageCheck, PackageX, Pencil, Plus, QrCode, Save, ScanLine, Search,
-  ShieldAlert, ShieldCheck, Sparkles, Tag, Trash2, Truck, User, X, XCircle, ZoomIn,
+  PackageCheck, PackageX, Pencil, Plus, QrCode, RotateCcw, Save, ScanLine, Search,
+  ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, Tag, Trash2, Truck, User, X, XCircle, ZoomIn,
 } from "lucide-react";
 import { ReturnIdentifiersColumn } from "../../components/ReturnIdentifiersColumn";
 import { ReturnItemProductLinkage } from "../../components/returns/ReturnItemProductLinkage";
-import { ManifestLineProductLinkage } from "../../components/returns/ManifestLineProductLinkage";
+import {
+  ExpectedScannedProductCell,
+  ExpectedScannedStatusBadge,
+  deriveExpectedScannedRowStatus,
+  expectedScannedRowBackgroundClass,
+} from "../../components/returns/expected-scanned-row-ui";
 import { ExpectedPackagesLinkagePanel } from "../../components/returns/ExpectedPackagesLinkagePanel";
 import { InventoryItemStatusLinkagePanel } from "../../components/returns/InventoryItemStatusLinkagePanel";
 import { SmartCameraUpload } from "../../components/ui/SmartCameraUpload";
@@ -71,6 +76,7 @@ import {
 } from "../../lib/returns-lookup-field-apply";
 import { operatorDisplayLabel } from "../../lib/operator-display";
 import { useProfileNames } from "../../hooks/useProfileNames";
+import { useRbacPermissions } from "../../hooks/useRbacPermissions";
 import {
   buildReturnsReportScannerIndex,
   derivePackageIssueLabels,
@@ -83,6 +89,13 @@ import {
   type ItemExceptionBadgeLabel,
   type PalletIssuesDisplay,
 } from "../../lib/returns-report-scanner-columns";
+import {
+  availableItemsColumns,
+  defaultVisibleItemsColumns,
+  readVisibleItemsColumns,
+  writeVisibleItemsColumns,
+  type ItemsColumnId,
+} from "../../lib/returns-items-columns";
 import {
   getReturnPhotoEvidenceUrls,
   mergeReturnPhotoEvidence,
@@ -1804,15 +1817,19 @@ export function ClaimEvidencePhotoGrid({
 
 // ─── Items Sub-Table (inside Package Drawer) ────────────────────────────────────
 
-function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick, onItemDeleted, showToast }: {
+function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick, onItemDeleted, showToast, operationalLayout = false }: {
   items: ReturnRecord[]; role: UserRole; actor: string;
   actorProfileId?: string | null;
   onItemClick: (r: ReturnRecord) => void;
   onItemDeleted: (id: string) => void;
   showToast: (msg: string, kind?: ToastKind) => void;
+  /** Box drawer: product title, FNSKU/SKU, status, date only. */
+  operationalLayout?: boolean;
 }) {
   const [search,  setSearch]  = useState("");
   const [statusF, setStatusF] = useState("");
+  /** Resolve created_by UUIDs → operator display names (optional column). */
+  const operatorNames = useProfileNames(items.map((r) => r.created_by));
   const filtered = useMemo(() => {
     let d = [...items];
     if (search) {
@@ -1822,6 +1839,15 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
     if (statusF) d = d.filter((r) => r.status === statusF);
     return d;
   }, [items, search, statusF]);
+
+  // Box drawer: clear empty state instead of an empty-looking search + table.
+  if (operationalLayout && items.length === 0) {
+    return (
+      <p className="rounded-xl border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
+        No scanned items in this box yet.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -1842,17 +1868,59 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
             <table className="w-full text-xs">
               <thead>
                 <tr className="rounded-t-xl border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
-                  <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">LPN</th>
-                  <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Item</th>
-                  <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Product</th>
-                  <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 sm:table-cell">Status</th>
-                  <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Date</th>
-                  <th className="px-3 py-2" />
+                  {operationalLayout ? (
+                    <>
+                      <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Product</th>
+                      <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">FNSKU / SKU</th>
+                      <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 sm:table-cell">Status</th>
+                      <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Scanned</th>
+                      <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 md:table-cell">Operator</th>
+                      <th className="px-3 py-2" />
+                    </>
+                  ) : (
+                    <>
+                      <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">LPN</th>
+                      <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Item</th>
+                      <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Product</th>
+                      <th className="hidden px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400 sm:table-cell">Status</th>
+                      <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Date</th>
+                      <th className="px-3 py-2" />
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filtered.map((r) => (
                   <tr key={r.id} onClick={() => onItemClick(r)} className="group cursor-pointer transition hover:bg-sky-50/50 dark:hover:bg-sky-950/20">
+                    {operationalLayout ? (
+                      <>
+                        <td className="min-w-0 max-w-[220px] px-3 py-2.5 text-slate-700 dark:text-slate-200">
+                          <p className="truncate font-medium">{r.item_name}</p>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-slate-600 dark:text-slate-300">
+                          {r.fnsku || r.sku || "—"}
+                        </td>
+                        <td className="hidden px-3 py-2.5 sm:table-cell"><StatusBadge status={r.status} /></td>
+                        <td className="px-3 py-2.5 text-slate-400">{fmt(r.created_at)}</td>
+                        <td className="hidden px-3 py-2.5 text-slate-500 dark:text-slate-400 md:table-cell">
+                          {(r.created_by && operatorNames[r.created_by]) || "—"}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <RowActionMenu
+                            onView={() => onItemClick(r)}
+                            onDelete={canDelete(role) ? async () => {
+                              const res = await deleteReturn(r.id, actor, actorProfileId);
+                              if (res.ok) onItemDeleted(r.id);
+                              else {
+                                console.error("[PackageItemsSubTable] deleteReturn failed:", res.error);
+                                showToast(res.error ?? "Delete failed.", "error");
+                              }
+                            } : undefined}
+                          />
+                        </td>
+                      </>
+                    ) : (
+                      <>
                     <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1.5 font-mono font-bold text-slate-700 dark:text-slate-300">
                         <span>{r.lpn ?? "—"}</span>
@@ -1884,6 +1952,8 @@ function ItemsSubTable({ items, role, actor, actorProfileId = null, onItemClick,
                         } : undefined}
                       />
                     </td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -2442,7 +2512,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <Package2 className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                  <p className="text-sm font-bold text-violet-900 dark:text-violet-100">Inherited Package Evidence</p>
+                  <p className="text-sm font-bold text-violet-900 dark:text-violet-100">Inherited Box Evidence</p>
                 </div>
                 <p className="text-xs leading-relaxed text-violet-800/90 dark:text-violet-200/90">
                   Photos tied to claim categories from the linked box flow. Manage existing slots or add more by category below.
@@ -2812,7 +2882,7 @@ export function ItemDrawerContent({ record, role, actor, actorProfileId = null, 
           {photoTotal > 0 && record.photo_evidence && (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">
-                Inherited Package Evidence ({photoTotal} photo{photoTotal !== 1 ? "s" : ""})
+                Inherited Box Evidence ({photoTotal} photo{photoTotal !== 1 ? "s" : ""})
               </p>
               {/* If we have live File objects from this session, show the gallery with zoom */}
               {sessionPhotos && Object.keys(sessionPhotos).length > 0 ? (
@@ -2926,7 +2996,7 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, actorPr
                   <p className="font-mono text-xs text-muted-foreground">{r.asin ?? r.fnsku ?? r.sku ?? "—"}</p>
                 </div>
                 {r.package_id && r.package_id !== pkg.id
-                  ? <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Move from other pkg</span>
+                  ? <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Move from other box</span>
                   : <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-500 dark:bg-slate-800 dark:text-slate-400">Unassigned</span>}
               </button>
             ))}
@@ -2940,8 +3010,8 @@ function AssignExistingItemModal({ pkg, allReturns, currentItems, actor, actorPr
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-xs overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-2xl dark:border-amber-700/50 dark:bg-slate-950">
             <div className="bg-amber-50 p-5 dark:bg-amber-950/40">
-              <div className="flex items-center gap-3 mb-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/60"><AlertTriangle className="h-5 w-5 text-amber-600" /></div><div><p className="text-sm font-bold text-foreground">Move Item?</p><p className="text-xs text-amber-600 dark:text-amber-400">This item belongs to another package</p></div></div>
-              <p className="text-xs text-slate-600 dark:text-slate-300">Moving <span className="font-semibold">{selected.item_name}</span> to <span className="font-mono font-bold">{pkg.package_code}</span>. It will be removed from its current package.</p>
+              <div className="flex items-center gap-3 mb-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/60"><AlertTriangle className="h-5 w-5 text-amber-600" /></div><div><p className="text-sm font-bold text-foreground">Move Item?</p><p className="text-xs text-amber-600 dark:text-amber-400">This item belongs to another box</p></div></div>
+              <p className="text-xs text-slate-600 dark:text-slate-300">Moving <span className="font-semibold">{selected.item_name}</span> to <span className="font-mono font-bold">{pkg.package_code}</span>. It will be removed from its current box.</p>
             </div>
             <div className="flex gap-3 p-4">
               <button onClick={() => setConfirm(false)} className="flex h-10 flex-1 items-center justify-center rounded-2xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300">Cancel</button>
@@ -2992,10 +3062,12 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
   onReturnRemoved?: (id: string) => void;
   showToast: (msg: string, kind?: ToastKind) => void;
 }) {
+  const { canSeeAdvancedInventoryStatus } = useRbacPermissions();
   const [pkg,        setPkg]        = useState(initPkg);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [discOpen,   setDiscOpen]   = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [advancedInventoryOpen, setAdvancedInventoryOpen] = useState(false);
   const [closing,    setClosing]    = useState(false);
   const [editing,    setEditing]    = useState(false);
   /** Resolve created_by / updated_by UUIDs to human-readable names. */
@@ -3315,41 +3387,92 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
 
   return (
     <div className="p-4 sm:p-6 space-y-5">
-      <div className="flex flex-wrap gap-2">
-        <PkgStatusBadge status={pkg.status} />
-        {effectiveCarrierDisplay && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300" title={pkg.pallet_id ? "Carrier (pallet shipment — from this or a sibling box on the pallet)" : undefined}>
-            <Truck className="h-3 w-3" />
-            {effectiveCarrierDisplay}
-          </span>
-        )}
-        {pkg.tracking_number && (
-          <span className="group inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 font-mono text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-            <QrCode className="h-3 w-3" />
-            {pkg.tracking_number}
-            <InlineCopy value={pkg.tracking_number} label="Tracking #" onToast={showToast} />
-          </span>
-        )}
-        {pkg.rma_number && (
-          <span className="group inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 font-mono text-xs text-amber-700 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300">
-            <Tag className="h-3 w-3" />
-            {pkg.rma_number}
-            <InlineCopy value={pkg.rma_number} label="RMA #" onToast={showToast} />
-          </span>
-        )}
-      </div>
-
-      {/* Count KPI */}
-      <div className={`rounded-2xl border p-4 ${atCapacity ? "border-emerald-200 bg-emerald-50 dark:border-emerald-700/60 dark:bg-emerald-950/30" : mismatch ? "border-amber-200 bg-amber-50 dark:border-amber-700/60 dark:bg-amber-950/30" : "border-sky-200 bg-sky-50 dark:border-sky-700/60 dark:bg-sky-950/30"}`}>
-        <div className="flex items-baseline gap-2">
-          <span className={`text-4xl font-extrabold ${atCapacity ? "text-emerald-600 dark:text-emerald-400" : mismatch ? "text-amber-600 dark:text-amber-400" : "text-sky-600 dark:text-sky-400"}`}>{scannedCount}</span>
-          {pkg.expected_item_count > 0 && <span className="text-xl text-slate-400">/ {pkg.expected_item_count} expected</span>}
-        </div>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          {remaining === null ? "No expected count set" : atCapacity ? "Count matches ✓" : remaining > 0 ? `${remaining} more needed` : `${Math.abs(remaining)} over expected`}
-        </p>
-        {pct !== null && <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/60 dark:bg-slate-900/50"><div className={`h-full rounded-full ${atCapacity ? "bg-emerald-500" : mismatch ? "bg-amber-500" : "bg-sky-500"}`} style={{ width: `${pct}%` }} /></div>}
-      </div>
+      {!editing && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950/40">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Box #</p>
+              <div className="group flex items-center gap-1.5">
+                <p className="font-mono text-lg font-bold text-foreground">{pkg.package_code}</p>
+                <InlineCopy value={pkg.package_code} label="Box #" onToast={showToast} />
+              </div>
+            </div>
+            <PkgStatusBadge status={pkg.status} />
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Tracking</p>
+              {pkg.tracking_number ? (
+                <div className="group flex flex-wrap items-center gap-1">
+                  <p className="font-mono text-xs font-semibold text-foreground">{pkg.tracking_number}</p>
+                  <InlineCopy value={pkg.tracking_number} label="Tracking #" onToast={showToast} />
+                </div>
+              ) : (
+                <p className="text-muted-foreground">—</p>
+              )}
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Operator</p>
+              <p className="font-semibold capitalize text-foreground">
+                {pkg.created_by && isUuidString(pkg.created_by.trim())
+                  ? (pkgOperatorNames[pkg.created_by.trim()] ?? operatorDisplayLabel(pkg))
+                  : operatorDisplayLabel(pkg)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Created</p>
+              <p className="font-semibold text-foreground">{fmt(pkg.created_at)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Expected</p>
+              <p className="text-lg font-bold text-foreground">{pkg.expected_item_count > 0 ? pkg.expected_item_count : "—"}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Scanned</p>
+              <p className={`text-lg font-bold ${atCapacity ? "text-emerald-600 dark:text-emerald-400" : mismatch ? "text-amber-600 dark:text-amber-400" : "text-sky-600 dark:text-sky-400"}`}>
+                {scannedCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Variance</p>
+              <p className={`font-semibold ${remaining !== null && remaining < 0 ? "text-amber-600 dark:text-amber-400" : remaining !== null && remaining > 0 ? "text-rose-600 dark:text-rose-400" : "text-foreground"}`}>
+                {remaining === null
+                  ? "—"
+                  : remaining === 0
+                    ? "None"
+                    : remaining > 0
+                      ? `${remaining} missing`
+                      : `${Math.abs(remaining)} over`}
+              </p>
+            </div>
+          </div>
+          {(effectiveCarrierDisplay || pkg.rma_number) && (
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+              {effectiveCarrierDisplay && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  <Truck className="h-3 w-3" />
+                  {effectiveCarrierDisplay}
+                </span>
+              )}
+              {pkg.rma_number && (
+                <span className="group inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 font-mono text-xs text-amber-700 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-300">
+                  <Tag className="h-3 w-3" />
+                  {pkg.rma_number}
+                  <InlineCopy value={pkg.rma_number} label="RMA #" onToast={showToast} />
+                </span>
+              )}
+            </div>
+          )}
+          {pct !== null && (
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-900">
+              <div
+                className={`h-full rounded-full ${atCapacity ? "bg-emerald-500" : mismatch ? "bg-amber-500" : "bg-sky-500"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
+        </section>
+      )}
 
       {pkg.status === "suspicious" && pkg.discrepancy_note && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-700/50 dark:bg-amber-950/30">
@@ -3573,22 +3696,11 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             </button>
           </div>
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          {pkg.rma_number && (
-            <div className="col-span-2">
-              <p className="text-xs text-slate-400">RMA #</p>
-              <div className="group flex flex-wrap items-center gap-2">
-                <p className="font-mono font-bold text-foreground">{pkg.rma_number}</p>
-                <InlineCopy value={pkg.rma_number} label="RMA #" onToast={showToast} />
-              </div>
-            </div>
-          )}
-          <div><p className="text-xs text-slate-400">Operator</p><p className="font-semibold capitalize text-foreground">{pkg.created_by && isUuidString(pkg.created_by.trim()) ? (pkgOperatorNames[pkg.created_by.trim()] ?? operatorDisplayLabel(pkg)) : operatorDisplayLabel(pkg)}</p></div>
-          <div><p className="text-xs text-slate-400">Created</p><p className="font-semibold text-foreground">{fmt(pkg.created_at)}</p></div>
+      ) : !editing ? (
+        <>
           {pkg.order_id?.trim() && (
-            <div className="col-span-2">
-              <p className="text-xs text-slate-400">Amazon order ID</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900/50">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Amazon order ID</p>
               <div className="group flex flex-wrap items-center gap-2">
                 <p className="font-mono font-semibold text-foreground">{pkg.order_id.trim()}</p>
                 <InlineCopy value={pkg.order_id.trim()} label="Amazon order ID" onToast={showToast} />
@@ -3600,8 +3712,8 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
             if (peUrls.length === 0) return null;
             const labels = ["Opened box", "Return label", "Closed box"];
             return (
-              <div className="col-span-2 space-y-2 pt-1">
-                <p className="text-xs text-slate-400">Claim evidence</p>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Claim evidence</p>
                 <PhotoGallery
                   photos={peUrls.map((src, i) => ({
                     src,
@@ -3611,10 +3723,209 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
               </div>
             );
           })()}
-        </div>
+        </>
+      ) : null}
+
+      {!editing && (
+        <section className="rounded-2xl border-2 border-sky-200 bg-sky-50/40 p-4 dark:border-sky-800/60 dark:bg-sky-950/20">
+          <div className="mb-3">
+            <h3 className="text-base font-bold text-foreground">Expected vs Scanned</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Compares expected box contents with scanned items.
+            </p>
+          </div>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            {reconciliationSource === "expected_packages" ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <CheckCircle2 className="h-3 w-3" />
+                Expected boxes
+              </span>
+            ) : reconciliationSource === "amazon" ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                <CheckCircle2 className="h-3 w-3" />
+                Amazon Sync
+              </span>
+            ) : reconciliationSource === "ocr" ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                <Sparkles className="h-3 w-3" />
+                Packing slip
+              </span>
+            ) : null}
+            {reconciliationSource === "expected_packages" && (
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                Synced expected box data (read-only).
+              </span>
+            )}
+            {reconciliationSource === "amazon" && (
+              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                Expected items loaded from Amazon files.
+              </span>
+            )}
+            {reconciliationSource !== "amazon" &&
+              reconciliationSource !== "expected_packages" &&
+              reconciliationLines &&
+              packageGalleryUrls(pkg).length > 0 && (
+              <a
+                href={packageGalleryUrls(pkg).slice(-1)[0] ?? "#"}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] font-semibold text-sky-600 underline hover:text-sky-700 dark:text-sky-400"
+              >
+                View packing slip image
+              </a>
+            )}
+          </div>
+          {(pkg.tracking_number?.trim() || pkg.order_id?.trim()) ? (
+            <ExpectedPackagesLinkagePanel
+              organizationId={pkg.organization_id}
+              storeId={pkg.store_id}
+              orderId={pkg.order_id}
+              trackingNumber={pkg.tracking_number}
+              scannedItems={displayItems}
+              compact
+              embedded
+              onLoaded={setExpectedPackagesRowCount}
+              className="mb-3"
+            />
+          ) : null}
+          {!reconciliationLines && reconciliationSource !== "expected_packages" && (
+            <p className="text-center text-[13px] text-muted-foreground">
+              No expected line items on file. Use <strong>Edit</strong> to photograph a packing slip — rows appear here once saved.
+            </p>
+          )}
+          {reconciliationLines && reconciliationSource !== "expected_packages" && (
+            <div className="overflow-hidden rounded-2xl border border-border bg-white dark:bg-slate-950">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
+                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Product</th>
+                    <th className="px-3 py-2 text-center font-bold uppercase tracking-wide text-slate-400">Expected</th>
+                    <th className="px-3 py-2 text-center font-bold uppercase tracking-wide text-slate-400">Scanned</th>
+                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {reconciliationLines.map((exp, slipIdx) => {
+                    const need = exp.expected_qty ?? 1;
+                    const matched = displayItems.filter((it) => physicalItemMatchesExpectedLine(it, exp));
+                    const scannedQty = matched.length;
+                    const lineStatus = deriveExpectedScannedRowStatus(need, scannedQty);
+                    const barcode = exp.barcode?.trim() || null;
+                    const slipName = exp.name?.trim() || null;
+                    const slipTitle = slipName || barcode || "—";
+                    const slipFnsku = barcode && slipName ? barcode : null;
+                    return (
+                      <tr
+                        key={`slip-${slipIdx}-${exp.barcode}`}
+                        className={expectedScannedRowBackgroundClass(lineStatus)}
+                      >
+                        <ExpectedScannedProductCell
+                          title={slipTitle}
+                          fnsku={slipFnsku}
+                        />
+                        <td className="px-3 py-2.5 text-center font-bold tabular-nums text-slate-600 dark:text-slate-300">{need}</td>
+                        <td className="px-3 py-2.5 text-center font-bold tabular-nums">
+                          {scannedQty > 0
+                            ? <span className="text-emerald-600">{scannedQty}</span>
+                            : <span className="text-rose-500">0</span>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <ExpectedScannedStatusBadge status={lineStatus} />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {displayItems
+                    .filter((it) => !reconciliationLines.some((exp) => physicalItemMatchesExpectedLine(it, exp)))
+                    .map((it) => {
+                      const fnsku = it.fnsku?.trim() || null;
+                      const sku = it.sku?.trim() || null;
+                      const asin = it.asin?.trim() || null;
+                      const productId = (it as { product_identifier?: string | null }).product_identifier?.trim() || null;
+                      const overTitle = it.item_name?.trim() || fnsku || sku || asin || productId || "—";
+                      let overSecondary: string | null = null;
+                      if (sku && sku !== overTitle && sku !== fnsku) overSecondary = `SKU: ${sku}`;
+                      else if (asin && asin !== overTitle && asin !== fnsku) overSecondary = `ASIN: ${asin}`;
+                      return (
+                      <tr key={it.id} className={expectedScannedRowBackgroundClass("Over")}>
+                        <ExpectedScannedProductCell
+                          title={overTitle}
+                          fnsku={fnsku}
+                          secondaryLabel={overSecondary}
+                          showLinkedBadge={!!(it.resolved_product_id || it.product_id)}
+                        />
+                        <td className="px-3 py-2.5 text-center text-slate-400">—</td>
+                        <td className="px-3 py-2.5 text-center font-bold tabular-nums text-amber-600">1</td>
+                        <td className="px-3 py-2.5">
+                          <ExpectedScannedStatusBadge status="Over" />
+                        </td>
+                      </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+              {displayItems.length === 0 && reconciliationLines.length > 0 && (
+                <p className="py-4 text-center text-xs text-slate-400">
+                  No items scanned yet — all {reconciliationLines.length} expected lines are missing.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
       )}
 
-      {/* Actions — bottom bar (Item / Package / Pallet) */}
+      {!editing && (
+        <section>
+          <div className="mb-3">
+            <h3 className="text-base font-bold text-foreground">Scanned Items</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Physical units scanned into this box.
+            </p>
+          </div>
+          <ItemsSubTable
+            items={displayItems}
+            role={role}
+            actor={actor}
+            actorProfileId={actorProfileId}
+            onItemClick={onOpenItem}
+            onItemDeleted={handleItemDeleted}
+            showToast={showToast}
+            operationalLayout
+          />
+        </section>
+      )}
+
+      {!editing && canSeeAdvancedInventoryStatus && pkg.tracking_number?.trim() ? (
+        <section className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setAdvancedInventoryOpen((v) => !v)}
+            className="flex w-full items-center justify-between gap-3 bg-slate-50/80 px-4 py-3 text-left transition hover:bg-slate-100 dark:bg-slate-900/50 dark:hover:bg-slate-900"
+          >
+            <div>
+              <p className="text-sm font-bold text-foreground">Advanced inventory status</p>
+              <p className="text-xs text-muted-foreground">Technical linkage view for admins.</p>
+            </div>
+            {advancedInventoryOpen ? (
+              <ChevronUp className="h-4 w-4 shrink-0 text-slate-400" />
+            ) : (
+              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+            )}
+          </button>
+          {advancedInventoryOpen && (
+            <div className="border-t border-slate-200 p-4 dark:border-slate-700">
+              <InventoryItemStatusLinkagePanel
+                organizationId={pkg.organization_id}
+                storeId={pkg.store_id}
+                trackingNumber={pkg.tracking_number}
+                compact
+              />
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {/* Actions — bottom bar */}
       {!editing && (
         <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
           <div className="flex flex-wrap justify-end gap-3">
@@ -3691,187 +4002,6 @@ export function PackageDrawerContent({ pkg: initPkg, role, actor, actorProfileId
           onClose={() => setAssignOpen(false)}
         />
       )}
-
-      {pkg.tracking_number?.trim() ? (
-        <section className="rounded-2xl border border-sky-200 bg-sky-50/50 p-4 dark:border-sky-800 dark:bg-sky-950/20">
-          <p className="mb-3 inline-flex items-center gap-1.5 text-sm font-bold text-foreground">
-            Inventory status
-            <ReportColumnHelpIcon
-              label="Inventory status"
-              text={RETURNS_REPORT_COLUMN_HELP.inventoryStatus}
-            />
-          </p>
-          <InventoryItemStatusLinkagePanel
-            organizationId={pkg.organization_id}
-            storeId={pkg.store_id}
-            trackingNumber={pkg.tracking_number}
-            compact
-          />
-        </section>
-      ) : null}
-
-      {/* ── Read-only: reconciliation from Amazon sync or manifest_data OCR ── */}
-      <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-700 dark:bg-slate-900/40">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-bold text-foreground">Expected vs scanned</p>
-            {reconciliationSource === "expected_packages" ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                <CheckCircle2 className="h-3 w-3" />
-                Expected packages
-              </span>
-            ) : reconciliationSource === "amazon" ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                <CheckCircle2 className="h-3 w-3" />
-                Amazon Sync
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-                <Sparkles className="h-3 w-3" />
-                Read-only
-              </span>
-            )}
-          </div>
-          {reconciliationSource === "expected_packages" && (
-            <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-              From expected_packages with product linkage (read-only).
-            </p>
-          )}
-          {reconciliationSource === "amazon" && (
-            <p className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-              Expected items loaded securely from Amazon files.
-            </p>
-          )}
-          {reconciliationSource !== "amazon" &&
-            reconciliationSource !== "expected_packages" &&
-            reconciliationLines &&
-            packageGalleryUrls(pkg).length > 0 && (
-            <a
-              href={packageGalleryUrls(pkg).slice(-1)[0] ?? "#"}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[10px] font-semibold text-sky-600 underline hover:text-sky-700 dark:text-sky-400"
-            >
-              View latest slip image
-            </a>
-          )}
-        </div>
-        {(pkg.tracking_number?.trim() || pkg.order_id?.trim()) ? (
-          <ExpectedPackagesLinkagePanel
-            organizationId={pkg.organization_id}
-            storeId={pkg.store_id}
-            orderId={pkg.order_id}
-            trackingNumber={pkg.tracking_number}
-            scannedItems={displayItems}
-            compact
-            onLoaded={setExpectedPackagesRowCount}
-            className="mb-3"
-          />
-        ) : null}
-        {!reconciliationLines && reconciliationSource !== "expected_packages" && (
-          <p className="text-center text-[13px] text-muted-foreground">
-            No manifest line items on file. Use <strong>Edit</strong> to photograph or load a packing slip — reconciliation appears here once saved.
-          </p>
-        )}
-        {reconciliationLines && reconciliationSource !== "expected_packages" && (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Reconciliation</p>
-              <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-                <Sparkles className="h-2.5 w-2.5" />
-                Expected vs Scanned
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-3 text-[10px] font-semibold uppercase tracking-wide">
-              <span className="flex items-center gap-1 text-emerald-600">🟢 On slip + scanned</span>
-              <span className="flex items-center gap-1 text-rose-600">🔴 On slip, not scanned</span>
-              <span className="flex items-center gap-1 text-amber-600">🟡 Scanned, not on slip</span>
-            </div>
-            <div className="overflow-hidden rounded-2xl border border-border">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900">
-                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Barcode / Name</th>
-                    <th className="px-3 py-2 text-center font-bold uppercase tracking-wide text-slate-400">On Slip</th>
-                    <th className="px-3 py-2 text-center font-bold uppercase tracking-wide text-slate-400">Scanned</th>
-                    <th className="px-3 py-2 text-left font-bold uppercase tracking-wide text-slate-400">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {reconciliationLines.map((exp, slipIdx) => {
-                    const need = exp.expected_qty ?? 1;
-                    const matched = displayItems.filter((it) => physicalItemMatchesExpectedLine(it, exp));
-                    const isMatch = matched.length >= need;
-                    const manifestLine = pkg.manifest_data?.[slipIdx];
-                    return (
-                      <tr key={`slip-${slipIdx}-${exp.barcode}`} className={isMatch ? "bg-emerald-50/70 dark:bg-emerald-950/20" : "bg-rose-50/70 dark:bg-rose-950/20"}>
-                        <td className="px-3 py-2.5">
-                          <p className="font-mono font-semibold text-slate-700 dark:text-slate-300">{exp.barcode}</p>
-                          <p className="text-slate-500">{exp.name}</p>
-                          {manifestLine ? <ManifestLineProductLinkage line={manifestLine} /> : null}
-                        </td>
-                        <td className="px-3 py-2.5 text-center font-bold text-slate-600 dark:text-slate-300">{need}</td>
-                        <td className="px-3 py-2.5 text-center font-bold">
-                          {matched.length > 0
-                            ? <span className="text-emerald-600">{matched.length}</span>
-                            : <span className="text-rose-500">0</span>}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          {isMatch
-                            ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">🟢 Match</span>
-                            : <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">🔴 Missing</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {displayItems
-                    .filter((it) => !reconciliationLines.some((exp) => physicalItemMatchesExpectedLine(it, exp)))
-                    .map((it) => (
-                      <tr key={it.id} className="bg-amber-50/70 dark:bg-amber-950/20">
-                        <td className="px-3 py-2.5">
-                          <p className="font-semibold text-slate-700 dark:text-slate-300">{it.item_name}</p>
-                          <p className="font-mono text-slate-400">
-                            {(it as { product_identifier?: string | null }).product_identifier?.trim()
-                              || (it.asin ?? it.fnsku ?? it.sku ?? it.lpn ?? "—")}
-                          </p>
-                          {(() => {
-                            const upc = upcFromProductIdentifier(
-                              (it as { product_identifier?: string | null }).product_identifier,
-                            );
-                            return upc ? (
-                              <p className="font-mono text-[10px] text-slate-500">UPC {upc}</p>
-                            ) : null;
-                          })()}
-                          <ReturnItemProductLinkage
-                            organizationId={it.organization_id}
-                            fields={it}
-                            compact
-                          />
-                        </td>
-                        <td className="px-3 py-2.5 text-center text-slate-400">—</td>
-                        <td className="px-3 py-2.5 text-center font-bold text-amber-600">1</td>
-                        <td className="px-3 py-2.5">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">🟡 Scanned, not on slip</span>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-              {displayItems.length === 0 && reconciliationLines.length > 0 && (
-                <p className="py-4 text-center text-xs text-slate-400">
-                  No items scanned yet — all {reconciliationLines.length} expected line-items are missing.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Items sub-table */}
-      <div>
-        <p className="mb-2 text-xs font-bold uppercase tracking-widest text-slate-400">Items ({displayItems.length})</p>
-        <ItemsSubTable items={displayItems} role={role} actor={actor} actorProfileId={actorProfileId} onItemClick={onOpenItem} onItemDeleted={handleItemDeleted} showToast={showToast} />
-      </div>
 
       {wizardOpen && (() => {
         const pkgWithExpected: PackageRecord = { ...pkg };
@@ -4072,7 +4202,7 @@ export function PalletDrawerContent({ pallet, role, actor, actorProfileId = null
 
       {/* Pallet info note: drill into packages above to see items */}
       <p className="rounded-xl bg-sky-50 px-4 py-2 text-xs text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
-        💡 Tap a package above to open it and view or scan its items.
+        💡 Tap a box above to open it and view or scan its items.
       </p>
 
       <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4 dark:border-slate-800">
@@ -4611,7 +4741,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
               {inherited.packageId && inherited.packageLabel && (
                 <>
                   <Tag className="h-3 w-3 shrink-0" />
-                  <span>PKG</span>
+                  <span>BOX</span>
                   {onNavigateToPackage ? (
                     <button
                       type="button"
@@ -4769,7 +4899,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
       )}
       {hasPackageLink && (
         <p className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-800 dark:border-sky-800/60 dark:bg-sky-950/30 dark:text-sky-200">
-          Tracking and carrier apply at the <span className="font-semibold">package</span> level — this item inherits them when saved.
+          Tracking and carrier apply at the <span className="font-semibold">box</span> level — this item inherits them when saved.
         </p>
       )}
       <div>
@@ -4788,7 +4918,7 @@ export function WizardStep1({ state, setState, openPackages, openPallets, existi
           Store <span className="text-rose-500">*</span>
           {storeInherited && (
             <span className="ml-2 text-xs font-normal text-emerald-600 dark:text-emerald-400">
-              · Inherited from Package
+              · Inherited from Box
             </span>
           )}
         </label>
@@ -5175,7 +5305,7 @@ export function WizardStep2({
           {showPackageBackfill && (
             <div className="rounded-2xl border-2 border-dashed border-amber-300/90 bg-amber-50/90 p-4 ring-1 ring-amber-200/60 dark:border-amber-700/70 dark:bg-amber-950/35 dark:ring-amber-900/40">
               <p className="mb-1 text-xs font-bold uppercase tracking-wide text-amber-900 dark:text-amber-200">
-                Package claim photos missing on file
+                Box claim photos missing on file
               </p>
               <p className="mb-3 text-[11px] leading-snug text-amber-950/90 dark:text-amber-100/90">
                 The linked box does not have opened-box and/or return-label shots on record. Capture them here — they are stored on <span className="font-semibold">this return item</span> only (<span className="font-mono">returns.photo_evidence</span>), not on the box row.
@@ -6865,7 +6995,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
                 <option value="">Select…</option>
                 {CARRIERS.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
-              <p className="mt-1 text-[10px] text-slate-400">Auto-fills child Package forms.</p>
+              <p className="mt-1 text-[10px] text-slate-400">Auto-fills child Box forms.</p>
             </div>
             <div>
               <label className={LABEL}>
@@ -6879,7 +7009,7 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
                 onChange={(e) => setPalletAmazonOrderId(e.target.value)}
                 placeholder="114-XXXXXXX-XXXXXXX"
               />
-              <p className="mt-1 text-[10px] text-slate-400">Inherits to packages &amp; items.</p>
+              <p className="mt-1 text-[10px] text-slate-400">Inherits to boxes &amp; items.</p>
             </div>
           </div>
 
@@ -6953,6 +7083,119 @@ export function CreatePalletModal({ onClose, onCreated, actor, aiManifestEnabled
   );
 }
 
+// ─── Items Column Manager (view settings) ────────────────────────────────────────
+
+/**
+ * Phase 1 column manager for the Items report. Checkbox toggles split into
+ * Visible / Hidden groups. Pure presentation — toggling never touches data or sorting.
+ */
+function ItemsColumnManager({
+  allCompanies,
+  visible,
+  onToggle,
+  onReset,
+}: {
+  allCompanies: boolean;
+  visible: Set<ItemsColumnId>;
+  onToggle: (id: ItemsColumnId) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const cols = availableItemsColumns(allCompanies);
+  const visibleCols = cols.filter((c) => visible.has(c.id));
+  const hiddenCols = cols.filter((c) => !visible.has(c.id));
+
+  const renderRow = (id: ItemsColumnId, label: string, checked: boolean) => (
+    <label
+      key={id}
+      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[#4C5661] transition hover:bg-[#F8F6F1] dark:text-[#B8C1CB] dark:hover:bg-[#232C35]"
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={() => onToggle(id)}
+        className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400"
+      />
+      <span className="truncate">{label}</span>
+    </label>
+  );
+
+  return (
+    <div className="relative shrink-0" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`${RT_CLEAR_BTN} h-10`}
+        title="Show / hide columns"
+      >
+        <SlidersHorizontal className="h-3.5 w-3.5" />
+        Columns
+        <ChevronDown className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Column settings"
+          className="absolute right-0 z-50 mt-2 w-72 rounded-2xl border border-[rgba(138,104,31,0.18)] bg-[#FFFCF7] p-3 shadow-2xl dark:border-[rgba(214,183,110,0.20)] dark:bg-[#1D242C]"
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#737C86] dark:text-[#7E8894]">
+              View settings
+            </p>
+            <button
+              type="button"
+              onClick={onReset}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-[#8A681F] transition hover:bg-[#EFE6D2] dark:text-[#D6B76E] dark:hover:bg-[#2A2418]"
+              title="Reset to default columns"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Reset
+            </button>
+          </div>
+          <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+            <div>
+              <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-[#9AA2AC] dark:text-[#7E8894]">
+                Visible columns
+              </p>
+              {visibleCols.length > 0
+                ? visibleCols.map((c) => renderRow(c.id, c.label, true))
+                : <p className="px-2 py-1 text-[11px] italic text-[#9AA2AC]">None</p>}
+            </div>
+            <div>
+              <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-widest text-[#9AA2AC] dark:text-[#7E8894]">
+                Hidden columns
+              </p>
+              {hiddenCols.length > 0
+                ? hiddenCols.map((c) => renderRow(c.id, c.label, false))
+                : <p className="px-2 py-1 text-[11px] italic text-[#9AA2AC]">None</p>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Items Data Table ──────────────────────────────────────────────────────────
 
 export function ItemsDataTable({ items, packages, pallets, role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, platformIconBySlug = {}, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, externalSearch = "", onToast, returnsTotalInDb = null }: {
@@ -6984,6 +7227,31 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
   const [showBulkMove, setShowBulkMove] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const PER = 25;
+
+  // ── Column manager (view settings) — persisted per tab in localStorage ──
+  const [visibleCols, setVisibleCols] = useState<Set<ItemsColumnId>>(
+    () => new Set(defaultVisibleItemsColumns(showCompanyColumn)),
+  );
+  useEffect(() => {
+    setVisibleCols(new Set(readVisibleItemsColumns(showCompanyColumn)));
+  }, [showCompanyColumn]);
+  const toggleCol = useCallback((id: ItemsColumnId) => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      writeVisibleItemsColumns(next);
+      return next;
+    });
+  }, []);
+  const resetCols = useCallback(() => {
+    const next = new Set(defaultVisibleItemsColumns(showCompanyColumn));
+    writeVisibleItemsColumns(next);
+    setVisibleCols(next);
+  }, [showCompanyColumn]);
+  const isCol = useCallback((id: ItemsColumnId) => visibleCols.has(id), [visibleCols]);
+  // Company column also requires the parent to allow all-companies mode.
+  const showCompany = showCompanyColumn && visibleCols.has("company");
 
   const pkgMap = useMemo(() => new Map(packages.map((p) => [p.id, p])), [packages]);
   const pltMap = useMemo(() => new Map(pallets.map((p) => [p.id, p])), [pallets]);
@@ -7050,6 +7318,12 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
   const rows  = filtered.slice((page-1)*PER, page*PER);
   const allSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
 
+  // Rendered data columns (excludes the fixed checkbox + action columns) — drives table min-width.
+  const renderedColumnCount = availableItemsColumns(showCompanyColumn).filter((c) =>
+    c.id === "company" ? showCompany : visibleCols.has(c.id),
+  ).length;
+  const tableMinWidth = Math.max(720, 96 + renderedColumnCount * 150);
+
   async function handleBulkDelete() {
     if (!window.confirm(`Delete ${selectedIds.size} item(s)? This cannot be undone.`)) return;
     setBulkDeleting(true);
@@ -7106,11 +7380,17 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
             <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className={`${INPUT_SM_DARK} h-10 w-[150px]`} title="To date" />
         </div>
         {(search || statusF || marketF || dateFrom || dateTo) && <button onClick={() => { setSearch(""); setStatusF(""); setMarketF(""); setDateFrom(""); setDateTo(""); setPage(1); }} className={RT_CLEAR_BTN}><X className="h-3.5 w-3.5" />Clear</button>}
+        <ItemsColumnManager
+          allCompanies={showCompanyColumn}
+          visible={visibleCols}
+          onToggle={toggleCol}
+          onReset={resetCols}
+        />
       </div>
 
       <div className={RT_TABLE_WRAP}>
         <div className="w-full min-w-0">
-          <table className="w-full min-w-[1780px] text-sm">
+          <table className="w-full text-sm" style={{ minWidth: `${tableMinWidth}px` }}>
             <thead>
               <tr className={RT_THEAD_ROW}>
                 <th className={TH_CHK} onClick={(e) => e.stopPropagation()}>
@@ -7118,36 +7398,36 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                     <input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((r) => r.id)) : new Set())} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                   </div>
                 </th>
-                {showCompanyColumn && (
+                {showCompany && (
                   <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Company</th>
                 )}
-                <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Item / Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className={`px-4 py-3 text-left ${RT_TH_LABEL}`}>Product</th>
-                <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="lpn" label="LPN" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="item_conditions" label="Conditions" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                {/* ── NEW: Expiry Date column ── */}
-                <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="expiration_date" label="Expiry" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                {/* ── NEW: Evidence Photo column ── */}
-                <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Photo</th>
-                <th className="hidden px-4 py-3 text-left lg:table-cell">
-                  <SortButton
-                    field="hierarchy_key"
-                    label="Hierarchy"
-                    sortField={sortField}
-                    sortAsc={sortAsc}
-                    onSort={handleSort}
-                    help={RETURNS_REPORT_COLUMN_HELP.inventoryStatus}
-                  />
-                </th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Box #</th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}>Pallet #</th>
-                <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Scan Source</th>
-                <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}>Exception</th>
-                <th className="hidden px-4 py-3 text-left xl:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
-                <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
+                {isCol("item_identifiers") && <th className="px-4 py-3 text-left"><SortButton field="item_name" label="Item / Identifiers" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("product") && <th className={`px-4 py-3 text-left ${RT_TH_LABEL}`}>Product</th>}
+                {isCol("tracking") && <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="tracking_effective" label="Tracking" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("lpn") && <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="lpn" label="LPN" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("store") && <th className="hidden px-4 py-3 text-left sm:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("condition") && <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="item_conditions" label="Conditions" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("status") && <th className="px-4 py-3 text-left"><SortButton field="status" label="Status" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("expiry") && <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="expiration_date" label="Expiry" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("photo") && <th className={`hidden px-4 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Photo</th>}
+                {isCol("hierarchy") && (
+                  <th className="hidden px-4 py-3 text-left lg:table-cell">
+                    <SortButton
+                      field="hierarchy_key"
+                      label="Hierarchy"
+                      sortField={sortField}
+                      sortAsc={sortAsc}
+                      onSort={handleSort}
+                      help={RETURNS_REPORT_COLUMN_HELP.inventoryStatus}
+                    />
+                  </th>
+                )}
+                {isCol("box") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Box #</th>}
+                {isCol("pallet") && <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}>Pallet #</th>}
+                {isCol("scan_source") && <th className={`hidden px-3 py-3 text-left md:table-cell ${RT_TH_LABEL}`}>Scan Source</th>}
+                {isCol("exception") && <th className={`hidden px-3 py-3 text-left lg:table-cell ${RT_TH_LABEL}`}>Exception</th>}
+                {isCol("operator") && <th className="hidden px-4 py-3 text-left xl:table-cell"><SortButton field="created_by" label="Operator" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
+                {isCol("date") && <th className="hidden px-4 py-3 text-left lg:table-cell"><SortButton field="created_at" label="Date" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>}
                 <th className="px-3 py-3" />
               </tr>
             </thead>
@@ -7166,102 +7446,124 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
                         <input type="checkbox" checked={selectedIds.has(r.id)} onChange={(e) => { const s = new Set(selectedIds); e.target.checked ? s.add(r.id) : s.delete(r.id); setSelectedIds(s); }} className="h-4 w-4 cursor-pointer rounded border-slate-300 text-sky-500 focus:ring-sky-400" />
                       </div>
                     </td>
-                    {showCompanyColumn && (
+                    {showCompany && (
                       <td className={`hidden max-w-[140px] truncate px-4 py-3 text-xs font-semibold ${RT_COMPANY} md:table-cell`} title={organizationLabelById[r.organization_id] ?? r.organization_id}>
                         {organizationLabelById[r.organization_id] ?? <span className="animate-pulse text-[#B08A3C]/80 dark:text-[#D6B76E]/70">Resolving…</span>}
                       </td>
                     )}
-                    <td className="px-4 py-3 min-w-[200px]">
-                      <ReturnIdentifiersColumn
-                        itemName={r.item_name}
-                        asin={r.asin}
-                        fnsku={r.fnsku}
-                        sku={r.sku}
-                        upc={upcFromProductIdentifier(r.product_identifier)}
-                        storePlatform={r.stores?.platform}
-                        onToast={onToast}
-                        menorixTable
-                      />
-                    </td>
-                    <td className="min-w-[220px] px-4 py-3 align-top" onClick={(e) => e.stopPropagation()}>
-                      <ReturnItemProductLinkage
-                        organizationId={r.organization_id}
-                        fields={r}
-                        compact
-                        menorixTable
-                      />
-                    </td>
-                    <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
-                      <div className={`flex items-center gap-1 font-mono text-[11px] ${RT_MUTED}`}>
-                        <span className="min-w-0 truncate">{track || "—"}</span>
-                        {track ? <InlineCopy value={track} label="Tracking #" onToast={onToast} stopPropagation /> : null}
-                      </div>
-                    </td>
-                    <td className={`hidden px-4 py-3 font-mono text-xs ${RT_MUTED} sm:table-cell`} onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1">
-                        <span>{r.lpn ?? "—"}</span>
-                        {r.lpn ? <InlineCopy value={r.lpn} label="LPN" onToast={onToast} stopPropagation /> : null}
-                      </div>
-                    </td>
-                    <td className="hidden px-4 py-3 sm:table-cell">
-                      <StoreBadge
-                        name={r.stores?.name ?? (r.marketplace ? formatMarketplaceSource(r.marketplace) : null)}
-                        platform={r.stores?.platform ?? r.marketplace}
-                        fallback="—"
-                      />
-                    </td>
-                    <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>
-                    <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                    {/* ── Expiry Date cell (FEFO) ── */}
-                    <td className="hidden px-4 py-3 md:table-cell">
-                      {expiryStatus ? (
-                        <div className="flex flex-col gap-0.5">
-                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${expiryStatus.cls}`}>
-                            <span className={`h-1.5 w-1.5 rounded-full ${expiryStatus.dotCls}`} />
-                            {expiryStatus.label}
-                          </span>
-                          <span className={`pl-0.5 text-[10px] ${RT_MUTED}`}>{expiryStatus.daysLabel}</span>
+                    {isCol("item_identifiers") && (
+                      <td className="px-4 py-3 min-w-[200px]">
+                        <ReturnIdentifiersColumn
+                          itemName={r.item_name}
+                          asin={r.asin}
+                          fnsku={r.fnsku}
+                          sku={r.sku}
+                          upc={upcFromProductIdentifier(r.product_identifier)}
+                          storePlatform={r.stores?.platform}
+                          onToast={onToast}
+                          menorixTable
+                        />
+                      </td>
+                    )}
+                    {isCol("product") && (
+                      <td className="min-w-[220px] px-4 py-3 align-top" onClick={(e) => e.stopPropagation()}>
+                        <ReturnItemProductLinkage
+                          organizationId={r.organization_id}
+                          fields={r}
+                          compact
+                          menorixTable
+                        />
+                      </td>
+                    )}
+                    {isCol("tracking") && (
+                      <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
+                        <div className={`flex items-center gap-1 font-mono text-[11px] ${RT_MUTED}`}>
+                          <span className="min-w-0 truncate">{track || "—"}</span>
+                          {track ? <InlineCopy value={track} label="Tracking #" onToast={onToast} stopPropagation /> : null}
                         </div>
-                      ) : (
-                        <span className={`text-xs ${RT_MUTED}`}>—</span>
-                      )}
-                    </td>
-                    {/* ── Evidence Photo cell ── */}
-                    <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
-                      {peUrls.item_url ? (
-                        <PhotoThumb url={peUrls.item_url} alt={`Evidence: ${r.item_name}`} />
-                      ) : (
-                        <span className={`text-xs ${RT_MUTED}`}>—</span>
-                      )}
-                    </td>
-                    <td className="hidden px-4 py-3 lg:table-cell">
-                      {linkedPkg
-                        ? <span className="inline-flex items-center gap-1 rounded-full bg-[#EFE6D2] px-2 py-0.5 font-mono text-[10px] font-bold text-[#6C5320] dark:bg-[#2A2418] dark:text-[#E8CF98]">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
-                        : <span className="inline-flex items-center gap-1 rounded-full bg-[#F5E9D2] px-2 py-0.5 text-[10px] font-bold text-[#6A4C16] dark:bg-[#312613] dark:text-[#EFD49A]">⚠ Orphaned / Loose</span>}
-                    </td>
-                    <td className={`hidden px-3 py-3 font-mono text-[11px] md:table-cell ${RT_MUTED}`}>
-                      {scanCtx?.boxCode ?? linkedPkg?.package_code ?? <ScannerReportDash />}
-                    </td>
-                    <td className={`hidden px-3 py-3 font-mono text-[11px] lg:table-cell ${RT_MUTED}`}>
-                      {scanCtx?.palletNumber ?? linkedPlt?.pallet_number ?? <ScannerReportDash />}
-                    </td>
-                    <td className="hidden px-3 py-3 md:table-cell">
-                      {scanCtx?.scanSource
-                        ? <ScannerReportPill label={scanCtx.scanSource} kind="info" />
-                        : <ScannerReportDash />}
-                    </td>
-                    <td className="hidden px-3 py-3 lg:table-cell">
-                      {scanCtx?.exceptionBadge
-                        ? (
-                          <ScannerReportPill
-                            label={scanCtx.exceptionBadge}
-                            kind={exceptionBadgePillKind(scanCtx.exceptionBadge)}
-                          />
-                        )
-                        : <ScannerReportDash />}
-                    </td>
-                    <td className={`hidden px-4 py-3 xl:table-cell text-xs ${RT_MUTED}`}>{operatorDisplayLabel(r, itemTableOperatorNames)}</td>
-                    <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(r.created_at)}</td>
+                      </td>
+                    )}
+                    {isCol("lpn") && (
+                      <td className={`hidden px-4 py-3 font-mono text-xs ${RT_MUTED} sm:table-cell`} onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          <span>{r.lpn ?? "—"}</span>
+                          {r.lpn ? <InlineCopy value={r.lpn} label="LPN" onToast={onToast} stopPropagation /> : null}
+                        </div>
+                      </td>
+                    )}
+                    {isCol("store") && (
+                      <td className="hidden px-4 py-3 sm:table-cell">
+                        <StoreBadge
+                          name={r.stores?.name ?? (r.marketplace ? formatMarketplaceSource(r.marketplace) : null)}
+                          platform={r.stores?.platform ?? r.marketplace}
+                          fallback="—"
+                        />
+                      </td>
+                    )}
+                    {isCol("condition") && <td className="hidden px-4 py-3 lg:table-cell"><div className="flex flex-wrap gap-1">{(r.conditions ?? []).slice(0,2).map((c) => <ConditionBadge key={c} value={c} />)}</div></td>}
+                    {isCol("status") && <td className="px-4 py-3"><StatusBadge status={r.status} /></td>}
+                    {isCol("expiry") && (
+                      <td className="hidden px-4 py-3 md:table-cell">
+                        {expiryStatus ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${expiryStatus.cls}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${expiryStatus.dotCls}`} />
+                              {expiryStatus.label}
+                            </span>
+                            <span className={`pl-0.5 text-[10px] ${RT_MUTED}`}>{expiryStatus.daysLabel}</span>
+                          </div>
+                        ) : (
+                          <span className={`text-xs ${RT_MUTED}`}>—</span>
+                        )}
+                      </td>
+                    )}
+                    {isCol("photo") && (
+                      <td className="hidden px-4 py-3 md:table-cell" onClick={(e) => e.stopPropagation()}>
+                        {peUrls.item_url ? (
+                          <PhotoThumb url={peUrls.item_url} alt={`Evidence: ${r.item_name}`} />
+                        ) : (
+                          <span className={`text-xs ${RT_MUTED}`}>—</span>
+                        )}
+                      </td>
+                    )}
+                    {isCol("hierarchy") && (
+                      <td className="hidden px-4 py-3 lg:table-cell">
+                        {linkedPkg
+                          ? <span className="inline-flex items-center gap-1 rounded-full bg-[#EFE6D2] px-2 py-0.5 font-mono text-[10px] font-bold text-[#6C5320] dark:bg-[#2A2418] dark:text-[#E8CF98]">📦 {linkedPkg.package_code}{linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}</span>
+                          : <span className="inline-flex items-center gap-1 rounded-full bg-[#F5E9D2] px-2 py-0.5 text-[10px] font-bold text-[#6A4C16] dark:bg-[#312613] dark:text-[#EFD49A]">⚠ Orphaned / Loose</span>}
+                      </td>
+                    )}
+                    {isCol("box") && (
+                      <td className={`hidden px-3 py-3 font-mono text-[11px] md:table-cell ${RT_MUTED}`}>
+                        {scanCtx?.boxCode ?? linkedPkg?.package_code ?? <ScannerReportDash />}
+                      </td>
+                    )}
+                    {isCol("pallet") && (
+                      <td className={`hidden px-3 py-3 font-mono text-[11px] lg:table-cell ${RT_MUTED}`}>
+                        {scanCtx?.palletNumber ?? linkedPlt?.pallet_number ?? <ScannerReportDash />}
+                      </td>
+                    )}
+                    {isCol("scan_source") && (
+                      <td className="hidden px-3 py-3 md:table-cell">
+                        {scanCtx?.scanSource
+                          ? <ScannerReportPill label={scanCtx.scanSource} kind="info" />
+                          : <ScannerReportDash />}
+                      </td>
+                    )}
+                    {isCol("exception") && (
+                      <td className="hidden px-3 py-3 lg:table-cell">
+                        {scanCtx?.exceptionBadge
+                          ? (
+                            <ScannerReportPill
+                              label={scanCtx.exceptionBadge}
+                              kind={exceptionBadgePillKind(scanCtx.exceptionBadge)}
+                            />
+                          )
+                          : <ScannerReportDash />}
+                      </td>
+                    )}
+                    {isCol("operator") && <td className={`hidden px-4 py-3 xl:table-cell text-xs ${RT_MUTED}`}>{operatorDisplayLabel(r, itemTableOperatorNames)}</td>}
+                    {isCol("date") && <td className={`hidden px-4 py-3 text-xs ${RT_MUTED} lg:table-cell`}>{fmt(r.created_at)}</td>}
                     <td className="px-3 py-3">
                       <RowActionMenu
                         onView={() => onRowClick(r)}
@@ -7412,7 +7714,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
         console.error("[PackagesDataTable] bulk delete failed for", failed.length, "id(s):", firstErr);
         onToast?.(
           failed.length === ids.length
-            ? `Could not delete packages: ${firstErr}`
+            ? `Could not delete boxes: ${firstErr}`
             : `${failed.length} box(es) could not be deleted (${firstErr}). ${succeeded.length} removed.`,
           "error",
         );
@@ -7909,7 +8211,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                 <th className="hidden px-4 py-3 text-left md:table-cell"><SortButton field="store_name" label="Store" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} /></th>
                 <th className="px-4 py-3 text-left">
                   <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                    <SortButton field="rollup_pkgs" label="Pkgs" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
+                    <SortButton field="rollup_pkgs" label="Boxes" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
                     <span className="text-[10px] font-bold text-[#CFC6B6] dark:text-[#4E5862]">/</span>
                     <SortButton field="rollup_items" label="Items" sortField={sortField} sortAsc={sortAsc} onSort={handleSort} />
                   </div>
@@ -7959,7 +8261,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
                       <td className="hidden px-4 py-3 md:table-cell">
                         <StoreBadge name={p.stores?.name} platform={p.stores?.platform} fallback="Multi-Store" />
                       </td>
-                      <td className="px-4 py-3"><span className={`font-bold ${RT_PRIMARY}`}>{p._rollupPkgs}</span><span className={`mx-1 ${RT_MUTED}`}>pkgs</span><span className={`font-bold ${RT_SECONDARY}`}>{p._rollupItems}</span><span className={`ml-1 ${RT_MUTED}`}>items</span></td>
+                      <td className="px-4 py-3"><span className={`font-bold ${RT_PRIMARY}`}>{p._rollupPkgs}</span><span className={`mx-1 ${RT_MUTED}`}>boxes</span><span className={`font-bold ${RT_SECONDARY}`}>{p._rollupItems}</span><span className={`ml-1 ${RT_MUTED}`}>items</span></td>
                       <td className={`hidden px-3 py-3 text-xs font-bold tabular-nums sm:table-cell ${RT_PRIMARY}`}>
                         {scanCtx && scanCtx.boxesTotal > 0
                           ? `${scanCtx.boxesClosed}/${scanCtx.boxesTotal}`

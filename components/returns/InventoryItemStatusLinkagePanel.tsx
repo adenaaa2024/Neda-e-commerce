@@ -162,7 +162,7 @@ export function InventoryItemStatusLinkagePanel({
               className="h-9 rounded-lg border border-border bg-background px-2 text-xs font-mono"
               value={filterPackageCode}
               onChange={(e) => setFilterPackageCode(e.target.value)}
-              placeholder="package_code"
+              placeholder="box #"
               autoComplete="off"
             />
           </label>
@@ -189,7 +189,7 @@ export function InventoryItemStatusLinkagePanel({
 
       {!hidePackageRollup && packageStatus ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-semibold text-muted-foreground">Box (v_inventory_status):</span>
+          <span className="text-[10px] font-semibold text-muted-foreground">Box inventory status</span>
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${inventoryPackageStatusChipClass(packageStatus)}`}
           >

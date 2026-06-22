@@ -347,8 +347,8 @@ export function formatPalletIssuesDisplay(row: PalletScannerRow | null | undefin
 
   const types = row.issueLabels;
   const displayTypes = toIssueDisplayLabels(types);
-  const packageWord = row.issues === 1 ? "package" : "packages";
-  const fallbackTitle = `${row.issues} ${packageWord} with scanner discrepancies`;
+  const boxWord = row.issues === 1 ? "box" : "boxes";
+  const fallbackTitle = `${row.issues} ${boxWord} with scanner discrepancies`;
   const title = types.length > 0 ? displayTypes.join(", ") : fallbackTitle;
 
   if (row.issues === 1 && types.length === 1) {
