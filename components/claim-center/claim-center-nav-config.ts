@@ -43,34 +43,21 @@ export const CLAIM_CENTER_MOBILE_BOTTOM: ClaimCenterNavLink[] = [
   { href: "/claim-center/evidence", label: "Proof", shortLabel: "Proof" },
 ];
 
-export const CLAIM_CENTER_MORE_WORKFLOW: ClaimCenterNavLink[] = [
-  { href: "/claim-center/opportunities", label: "Find money", shortLabel: "Money" },
-  { href: "/claim-center/recovery", label: "Recovery", shortLabel: "Paid" },
+/**
+ * Detail / power-user tools surfaced in the More menu. None of these hrefs is a
+ * primary-nav section root, so no page appears both as a primary tab and in More.
+ */
+export const CLAIM_CENTER_MORE_DETAIL_TOOLS: ClaimCenterNavLink[] = [
+  { href: "/claim-center/evidence", label: "Proof / evidence", shortLabel: "Proof" },
+  { href: "/claim-center/product-linkage", label: "Product match blockers", shortLabel: "Product" },
+  { href: "/claim-center/recovery", label: "Observed reimbursements", shortLabel: "Paid" },
+  { href: "/claim-center/sources", label: "Generator runs", shortLabel: "Runs" },
 ];
 
-/** Pilot filing + financial recovery — visible without digging into Admin/Legacy. */
-export const CLAIM_CENTER_FILING_RECOVERY_NAV: ClaimCenterNavLink[] = [
-  {
-    href: "/claim-center/ready-to-file",
-    label: "Ready to File",
-    shortLabel: "Ready",
-  },
-  {
-    href: "/claim-center/reimbursement-tracking",
-    label: "Reimbursement Tracking",
-    shortLabel: "Tracking",
-  },
+/** Case review sub-tools (the Cases primary tab is the canonical entry). */
+export const CLAIM_CENTER_CASE_TOOLS_NAV: ClaimCenterNavLink[] = [
   { href: "/claim-center/case-review", label: "Case review", shortLabel: "Cases" },
   { href: "/claim-center/pilot-review", label: "Pilot review", shortLabel: "Pilot" },
-];
-
-export const CLAIM_CENTER_MORE_BLOCKERS: ClaimCenterNavLink[] = [
-  { href: "/claim-center/product-linkage", label: "Product not matched", shortLabel: "Product" },
-  { href: "/claim-center/references", label: "Reference conflict", shortLabel: "Refs" },
-];
-
-export const CLAIM_CENTER_MORE_SOURCES: ClaimCenterNavLink[] = [
-  { href: "/claim-center/sources", label: "Sources", shortLabel: "Sources" },
 ];
 
 export const CLAIM_CENTER_POOL_NAV: ClaimCenterNavLink[] = [
@@ -79,19 +66,27 @@ export const CLAIM_CENTER_POOL_NAV: ClaimCenterNavLink[] = [
   { href: "/claim-center/group-builder", label: "Group builder", shortLabel: "Groups" },
 ];
 
-export const CLAIM_CENTER_ADMIN_NAV: ClaimCenterNavLink[] = [
-  { href: "/claim-center/policies", label: "Policy snapshot", shortLabel: "Rules" },
+/** @deprecated split into Cases / Submissions / Reimbursement Tracking primary tabs. */
+export const CLAIM_CENTER_FILING_RECOVERY_NAV: ClaimCenterNavLink[] = CLAIM_CENTER_CASE_TOOLS_NAV;
+
+/** @deprecated opportunities + recovery are reachable via primary tabs / detail tools. */
+export const CLAIM_CENTER_MORE_WORKFLOW: ClaimCenterNavLink[] = [];
+
+/** @deprecated product-linkage moved to detail tools; references is the Product Story tab. */
+export const CLAIM_CENTER_MORE_BLOCKERS: ClaimCenterNavLink[] = [
+  { href: "/claim-center/product-linkage", label: "Product not matched", shortLabel: "Product" },
 ];
 
-export const CLAIM_CENTER_LEGACY_OUTCOMES_NAV: ClaimCenterNavLink[] = [
-  { href: "/claim-center/cases", label: "Cases (legacy)", shortLabel: "Cases", legacy: true },
-  {
-    href: "/claim-center/submissions",
-    label: "Legacy filings",
-    shortLabel: "Filings",
-    legacy: true,
-  },
+/** @deprecated generator runs moved to detail tools; coverage is the Sources tab. */
+export const CLAIM_CENTER_MORE_SOURCES: ClaimCenterNavLink[] = [
+  { href: "/claim-center/sources", label: "Generator runs", shortLabel: "Runs" },
 ];
+
+/** @deprecated policy snapshot is now the Rules primary tab. */
+export const CLAIM_CENTER_ADMIN_NAV: ClaimCenterNavLink[] = [];
+
+/** @deprecated cases + submissions are now primary tabs. */
+export const CLAIM_CENTER_LEGACY_OUTCOMES_NAV: ClaimCenterNavLink[] = [];
 
 export const CLAIM_CENTER_LEGACY_TOOLS: ClaimCenterNavLink[] = [
   { href: "/claim-engine", label: "Claim Engine (legacy)", external: true, legacy: true },
@@ -111,32 +106,33 @@ export const CLAIM_CENTER_LEGACY_TOOLS: ClaimCenterNavLink[] = [
   { href: "/returns/claims", label: "Returns draft pool (legacy)", external: true, legacy: true },
 ];
 
-/** The 9 unified primary sections — surfaced first on the mobile More sheet so the
+/** The 10 unified primary sections — surfaced first on the mobile More sheet so the
  * top-level Claim Center structure matches the desktop primary nav. */
 export const CLAIM_CENTER_PRIMARY_SECTIONS_NAV: ClaimCenterNavLink[] = [
   { href: "/claim-center", label: "Dashboard", shortLabel: "Home", exact: true },
   { href: "/claim-center/opportunities", label: "Opportunities", shortLabel: "Opps" },
   { href: "/claim-center/needs-data", label: "Needs Data", shortLabel: "Needs" },
   { href: "/claim-center/ready-to-file", label: "Ready to File", shortLabel: "Ready" },
-  { href: "/claim-center/reimbursement-tracking", label: "Filed / Tracking", shortLabel: "Filed" },
-  { href: "/claim-center/recovery", label: "Reimbursements", shortLabel: "Paid" },
+  { href: "/claim-center/cases", label: "Cases", shortLabel: "Cases" },
+  { href: "/claim-center/submissions", label: "Submissions", shortLabel: "Subs" },
+  { href: "/claim-center/reimbursement-tracking", label: "Reimbursement Tracking", shortLabel: "Tracking" },
   { href: "/claim-center/references", label: "Product Story", shortLabel: "Story" },
-  { href: "/claim-center/data-coverage", label: "Data Sources / Coverage", shortLabel: "Sources" },
-  { href: "/claim-center/policies", label: "Policies / Settings", shortLabel: "Rules" },
+  { href: "/claim-center/data-coverage", label: "Sources", shortLabel: "Sources" },
+  { href: "/claim-center/policies", label: "Rules", shortLabel: "Rules" },
 ];
 
-/** More menu groups — desktop overflow + mobile sheet. */
+/**
+ * More menu groups — desktop overflow + mobile sheet.
+ * The "sections" group mirrors the primary nav and is rendered ONLY on the mobile
+ * sheet (the desktop More menu filters it out), so no page appears both as a desktop
+ * primary tab and in the desktop More menu. The remaining groups contain only
+ * non-primary detail / power-user / legacy routes.
+ */
 export const CLAIM_CENTER_MOBILE_MORE_GROUPS: ClaimCenterNavGroup[] = [
   { id: "sections", label: "Claim Center", items: CLAIM_CENTER_PRIMARY_SECTIONS_NAV },
-  { id: "workflow", label: "Workflow", items: CLAIM_CENTER_MORE_WORKFLOW },
-  { id: "filing_recovery", label: "Filing & recovery", items: CLAIM_CENTER_FILING_RECOVERY_NAV },
-  { id: "blockers", label: "Blockers", items: CLAIM_CENTER_MORE_BLOCKERS },
-  { id: "sources", label: "Sources", items: CLAIM_CENTER_MORE_SOURCES },
-  {
-    id: "admin_legacy",
-    label: "Admin / Legacy",
-    items: [...CLAIM_CENTER_POOL_NAV, ...CLAIM_CENTER_ADMIN_NAV, ...CLAIM_CENTER_LEGACY_OUTCOMES_NAV],
-  },
+  { id: "filing_recovery", label: "Case tools", items: CLAIM_CENTER_CASE_TOOLS_NAV },
+  { id: "blockers", label: "Detail tools", items: CLAIM_CENTER_MORE_DETAIL_TOOLS },
+  { id: "admin_legacy", label: "Power user / Legacy", items: [...CLAIM_CENTER_POOL_NAV, ...CLAIM_CENTER_LEGACY_TOOLS] },
 ];
 
 /** @deprecated — desktop rail removed in flow navigation V1 */

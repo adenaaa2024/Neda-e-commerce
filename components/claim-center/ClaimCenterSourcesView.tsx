@@ -12,6 +12,10 @@ import type {
   TridReadinessPayload,
 } from "@/lib/claims/connectors/source-connector-readmodel";
 import { getClaimCenterV2Page } from "@/lib/claims/center/claim-center-v2-page-contract";
+import {
+  dataSourceBadgeMeta,
+  type DataSourcesHubPayload,
+} from "@/lib/data-sources/data-sources-hub-contract";
 
 import { ClaimCenterBridgePhaseNotice } from "./ClaimCenterBridgePhaseNotice";
 import { ClaimCenterSectionEmptyState } from "./ClaimCenterSectionEmptyState";
@@ -47,6 +51,7 @@ function formatWhen(iso: string | null | undefined): string {
 }
 
 type RunsPayload = {
+  data_sources_hub?: DataSourcesHubPayload | null;
   discovery_index?: {
     last_watermark_at?: string | null;
     sources?: Record<string, { enabled?: boolean; last_run_at?: string | null }>;
@@ -165,6 +170,75 @@ function buildSourceCards(data: RunsPayload | null, automation: MenorixAutomatio
   }
 
   return cards;
+}
+
+const HUB_TONE_CLASS: Record<string, string> = {
+  success: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
+  info: "bg-sky-500/15 text-sky-800 dark:text-sky-200",
+  warning: "bg-amber-500/15 text-amber-900 dark:text-amber-100",
+  danger: "bg-rose-500/15 text-rose-800 dark:text-rose-200",
+  neutral: "bg-black/10 text-black/60 dark:bg-white/10 dark:text-white/60",
+};
+
+function DataSourcesHubPanel({ hub }: { hub: DataSourcesHubPayload }) {
+  return (
+    <section className="claim-center-card space-y-4 rounded-xl p-4" data-data-sources-hub>
+      <div className="flex flex-wrap items-center gap-2">
+        <Database className="h-4 w-4 opacity-50" aria-hidden />
+        <h2 className="text-sm font-semibold">Data Sources (single hub · claim view)</h2>
+        <span className="text-[10px] uppercase opacity-45">read-only · one source of truth</span>
+      </div>
+
+      <div className="grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+        {hub.sources.map((s) => {
+          const meta = dataSourceBadgeMeta(s.badge);
+          return (
+            <article key={s.source_key} className="rounded-lg bg-black/[0.03] p-3 dark:bg-white/[0.04]">
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="min-w-0 truncate font-medium" title={s.display_name}>
+                  {s.display_name}
+                </h3>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                    HUB_TONE_CLASS[meta.tone] ?? HUB_TONE_CLASS.neutral
+                  }`}
+                >
+                  {meta.label}
+                </span>
+              </div>
+              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                <div>
+                  <dt className="opacity-50">Rows</dt>
+                  <dd className="opacity-85">{s.row_count != null ? s.row_count.toLocaleString() : "—"}</dd>
+                </div>
+                <div>
+                  <dt className="opacity-50">Latest</dt>
+                  <dd className="opacity-85">
+                    {s.latest_event_date ? new Date(s.latest_event_date).toLocaleDateString() : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="opacity-50">Schedule</dt>
+                  <dd className="opacity-85">{s.schedule}</dd>
+                </div>
+                <div>
+                  <dt className="opacity-50">Live SP-API</dt>
+                  <dd className="opacity-85">{s.live_sp_api_exists ? "Yes" : "No"}</dd>
+                </div>
+              </dl>
+              {s.needs_initial_sync ? (
+                <p className="mt-2 text-[11px] text-amber-900 dark:text-amber-100">Needs initial sync.</p>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+
+      <p className="text-[11px] opacity-55">
+        Configure these sources in Platform Settings → Data Sources (control plane). This claim view is read-only.
+      </p>
+    </section>
+  );
 }
 
 function FreshnessBadge({ status }: { status: string }) {
@@ -327,11 +401,13 @@ export function ClaimCenterSourcesView() {
   }, [load, storeId]);
 
   const automation = data?.automation_health ?? null;
+  const hub = data?.data_sources_hub ?? null;
   const cards = useMemo(() => buildSourceCards(data, automation), [data, automation]);
   const hasContent =
     cards.length > 0 ||
     automation?.last_run_at ||
-    (data?.source_health_payload?.length ?? 0) > 0;
+    (data?.source_health_payload?.length ?? 0) > 0 ||
+    (hub?.sources.length ?? 0) > 0;
 
   return (
     <ClaimCenterV2PageShell contract={contract}>
@@ -343,6 +419,8 @@ export function ClaimCenterSourcesView() {
         <ClaimCenterSectionEmptyState config={CLAIM_CENTER_SECTION_EMPTY.runs} />
       ) : (
         <div className="space-y-6">
+          {hub && hub.sources.length > 0 ? <DataSourcesHubPanel hub={hub} /> : null}
+
           <ReadinessSummaryPanel data={data} />
 
           <section className="claim-center-card rounded-xl p-4 transition-shadow hover:shadow-sm">

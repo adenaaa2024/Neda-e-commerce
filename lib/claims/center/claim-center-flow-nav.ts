@@ -47,6 +47,10 @@ export type ClaimCenterFlowCounts = {
   references: number;
   recovery: number;
   sources: number;
+  /** Claims that passed every gate (Ready to File section badge). */
+  ready_to_file: number;
+  /** Submissions observed as filed (Filed / Tracking section badge). */
+  filed: number;
 };
 
 export const CLAIM_CENTER_FLOW_STEPS: ClaimCenterFlowStep[] = [
@@ -181,6 +185,7 @@ export function flowCountsFromDashboard(kpis: {
   evidence_missing_count?: number;
   blocked_product_link_count?: number;
   observed_reimbursed_count?: number;
+  observed_filed_count?: number;
   ready_to_file_count?: number;
   review_blocker_count?: number;
 }, referenceConflictCount = 0, reviewBlockerCount?: number): ClaimCenterFlowCounts {
@@ -197,5 +202,7 @@ export function flowCountsFromDashboard(kpis: {
     references: referenceConflictCount,
     recovery: kpis.observed_reimbursed_count ?? 0,
     sources: 0,
+    ready_to_file: kpis.ready_to_file_count ?? 0,
+    filed: kpis.observed_filed_count ?? 0,
   };
 }

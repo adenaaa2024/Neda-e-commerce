@@ -4,7 +4,7 @@ import { runCenterGet } from "../_shared";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  return runCenterGet(req, async ({ organizationId }) => {
-    return getCenterSourceCoveragePayload({ organizationId });
+  return runCenterGet(req, async ({ organizationId, storeId }) => {
+    return getCenterSourceCoveragePayload({ organizationId, storeId });
   });
 }

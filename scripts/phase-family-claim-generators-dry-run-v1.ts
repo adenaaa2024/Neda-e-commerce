@@ -89,6 +89,7 @@ type FamilyRow = {
   ready_to_file_count: number;
   blockers: Record<string, number>;
   source_coverage: string;
+  missing_source_blocker: string | null;
 };
 
 function num(v: number | null): string {
@@ -245,6 +246,28 @@ async function main(): Promise<void> {
       reimbQuality = "n/a (no generator)";
     }
 
+    // Which live source/API must land before this family can produce a fileable candidate
+    // (mark the blocker — never invent data when a live source is missing).
+    let missingSourceBlocker: string | null = null;
+    if (fam.lane === "unsupported") {
+      missingSourceBlocker = fam.note;
+    } else if (fam.lane === "removal_pilot") {
+      missingSourceBlocker =
+        "GET_FBA_REIMBURSEMENTS_DATA (order-linked reimbursement) + SP-API removal-delivery proof + settlement Order rows for 3 missing SKUs — initial live source sync blocked at gate";
+    } else {
+      const tbl = support?.required_source_table ?? null;
+      if (tbl && !liveTables.has(tbl)) {
+        missingSourceBlocker = `needs ${tbl} live load (${support?.required_source_group ?? "—"})`;
+      } else if (support?.required_source_group === "reimbursement") {
+        missingSourceBlocker =
+          "reimbursement rows weak (FNSKU/date-window, not order-linked) — needs GET_FBA_REIMBURSEMENTS_DATA order-linked sync";
+      } else if (/fee/i.test(fam.req)) {
+        missingSourceBlocker = "needs Product Fees / Fee Preview API for expected fee (amazon_fee_preview not live-loaded)";
+      } else if (blocked > 0 && valid === 0) {
+        missingSourceBlocker = Object.keys(blockers)[0] ?? null;
+      }
+    }
+
     matrix.push({
       family: fam.req,
       lane: fam.lane,
@@ -262,6 +285,7 @@ async function main(): Promise<void> {
       ready_to_file_count: readyToFile,
       blockers,
       source_coverage: coverageByFamily.get(fam.req) ?? `not in family map (live tables: ${[...liveTables].filter(Boolean).length})`,
+      missing_source_blocker: missingSourceBlocker,
     });
   }
 
@@ -308,6 +332,15 @@ async function main(): Promise<void> {
   console.log(`trid_linkage_quality_by_family: ${JSON.stringify(Object.fromEntries(matrix.map((m) => [m.family, m.trid_linkage_quality])))}`);
   console.log(`reimbursement_match_quality_by_family: ${JSON.stringify(Object.fromEntries(matrix.map((m) => [m.family, m.reimbursement_match_quality])))}`);
   console.log(`amount_basis_by_family: ${JSON.stringify(Object.fromEntries(matrix.map((m) => [m.family, m.amount_basis])))}`);
+
+  const missingSourceBlockers = {
+    by_family: Object.fromEntries(
+      matrix.filter((m) => m.missing_source_blocker).map((m) => [m.family, m.missing_source_blocker]),
+    ),
+    missing_files_or_tables: coverage.missing_files_or_tables,
+    missing_api_endpoints: coverage.missing_api_endpoints,
+  };
+  console.log(`missing_source_blockers: ${JSON.stringify(missingSourceBlockers, null, 2)}`);
   console.log(`\ntop_20_candidate_preview:`);
   for (const t of top20) console.log(`  - ${t}`);
   console.log(`\ntotal_dry_run_candidates: ${sum((m) => m.dry_run_candidate_count)}`);
@@ -328,7 +361,7 @@ async function main(): Promise<void> {
 
   const ok = failures === 0;
   console.log(`\n=== ${ok ? "PASS" : `FAIL (${failures})`} ===`);
-  console.log(`build_result: tsc 0/ReadLints 0/smoke PASS/next build exit 0`);
+  console.log(`build_result/smoke_result/next_build_result: run by the phase gate (tsc --noEmit + smoke-phase-claim-ready-to-file-queue-ui-v1 + next build) — see orchestration output`);
   console.log(`SAFE_FAMILY_CLAIM_GENERATORS_DRY_RUN_COMPLETE: ${ok ? "yes" : "no"}`);
   console.log(`SAFE_TO_BUILD_CLAIM_OPPORTUNITIES_UI: yes (per-family dry-run matrix is deterministic, read-only, family-isolated; no removal-gap pollution)`);
   console.log(

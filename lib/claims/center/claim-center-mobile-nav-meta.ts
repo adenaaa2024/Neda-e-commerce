@@ -74,11 +74,11 @@ const META_BY_PATH: Record<string, ClaimCenterMoreNavMeta> = {
     icon: BookOpen,
   },
   "/claim-center/cases": {
-    purpose: "Legacy internal cases",
+    purpose: "Claim cases grouped for filing and review",
     icon: Archive,
   },
   "/claim-center/submissions": {
-    purpose: "Legacy return-linked filings",
+    purpose: "Filed submissions and recorded case status",
     icon: ScrollText,
   },
 };

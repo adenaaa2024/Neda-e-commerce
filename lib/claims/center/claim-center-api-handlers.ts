@@ -85,6 +85,8 @@ import { loadMaterializedCandidateEdges } from "@/lib/claims/edges/claim-referen
 import { buildTridEdgeReadModel } from "@/lib/claims/readmodel/trid-edge-readmodel-v1";
 import { supabaseServer } from "@/lib/supabase-server";
 import { composeClaimSourceCoverageV1 } from "@/lib/claims/center/claim-source-coverage-v1";
+import { composeDataSourcesHubStatusV1 } from "@/lib/data-sources/data-sources-hub-v1";
+import type { DataSourcesHubView } from "@/lib/data-sources/data-sources-hub-contract";
 import { composeSeparateFamilyCandidateGeneratorsV1 } from "@/lib/claims/opportunities/separate-family-candidate-generators-v1";
 
 function str(v: unknown): string | null {
@@ -393,11 +395,12 @@ export async function getCenterRecoveryPayload(organizationId: string, storeId: 
 
 export async function getCenterSourcesPayload(organizationId: string, storeId: string | null) {
   await centerModuleGateOrThrow(organizationId);
-  const [runs, automation, policy_context, connector_readiness] = await Promise.all([
+  const [runs, automation, policy_context, connector_readiness, data_sources_hub] = await Promise.all([
     getCenterRunsPayload(organizationId, storeId),
     getCenterAutomationHealthPayload(organizationId, storeId),
     loadCenterPolicyContext(organizationId, storeId),
     buildSourceConnectorReadiness(supabaseServer, organizationId, storeId),
+    getCenterDataSourcesHubPayload(organizationId, storeId, "claim"),
   ]);
   const enabled = policy_context.effective_policy.enabled_sources;
   const discoverySources = runs.discovery_index as {
@@ -420,6 +423,7 @@ export async function getCenterSourcesPayload(organizationId: string, storeId: s
     ...runs,
     automation_health: automation,
     source_cards,
+    data_sources_hub,
     policy_context,
     connector_readiness,
     source_health_payload: connector_readiness.source_health,
@@ -671,7 +675,7 @@ export async function getCenterReimbursementTrackingPayload(args: {
       profit_loss_complete: moneyLaneV2.profit_loss_coverage,
     },
   });
-  return buildReimbursementTrackingUiPayload({
+  const payload = buildReimbursementTrackingUiPayload({
     pilot_case_run_id: composed.pilot_case_run_id,
     intake_run_id: composed.intake_run_id,
     previews: composed.previews,
@@ -679,6 +683,8 @@ export async function getCenterReimbursementTrackingPayload(args: {
     preview_run_reference: "phase-claim-reimbursement-tracking-preview-v1/20260617T130000Z",
     money_lane,
   });
+  const data_sources_hub = await getCenterDataSourcesHubPayload(args.organizationId, args.storeId, "claim");
+  return { ...payload, data_sources_hub };
 }
 
 /** Read-only simulation overlay for reimbursement tracking demo — no DB writes. */
@@ -728,16 +734,38 @@ export async function getCenterReadyToFilePayload(args: {
   intake_run_id?: string;
 }) {
   await centerModuleGateOrThrow(args.organizationId);
-  return composeClaimReadyToFileQueueV1(supabaseServer, args.organizationId, args.storeId, {
-    pilot_case_run_id: args.pilot_case_run_id,
-    intake_run_id: args.intake_run_id,
-  });
+  const [queue, data_sources_hub] = await Promise.all([
+    composeClaimReadyToFileQueueV1(supabaseServer, args.organizationId, args.storeId, {
+      pilot_case_run_id: args.pilot_case_run_id,
+      intake_run_id: args.intake_run_id,
+    }),
+    getCenterDataSourcesHubPayload(args.organizationId, args.storeId, "claim"),
+  ]);
+  return { ...queue, data_sources_hub };
+}
+
+/**
+ * Read-only claim-filtered slice of the single Data Sources Hub. The one
+ * composer every Claim Center status surface (Data Coverage, Sources,
+ * Ready-to-File blockers, Reimbursement Tracking) must read from so there is a
+ * single definition of "source status". No writes, no Amazon calls.
+ */
+export async function getCenterDataSourcesHubPayload(
+  organizationId: string,
+  storeId: string | null,
+  view: DataSourcesHubView = "claim",
+) {
+  return composeDataSourcesHubStatusV1(supabaseServer, organizationId, { view, storeId });
 }
 
 /** Read-only Amazon source/API coverage + claim-family data map. Probes 17 sources. No writes, no Amazon. */
-export async function getCenterSourceCoveragePayload(args: { organizationId: string }) {
+export async function getCenterSourceCoveragePayload(args: { organizationId: string; storeId?: string | null }) {
   await centerModuleGateOrThrow(args.organizationId);
-  return composeClaimSourceCoverageV1(supabaseServer, args.organizationId);
+  const [coverage, data_sources_hub] = await Promise.all([
+    composeClaimSourceCoverageV1(supabaseServer, args.organizationId),
+    getCenterDataSourcesHubPayload(args.organizationId, args.storeId ?? null, "claim"),
+  ]);
+  return { ...coverage, data_sources_hub };
 }
 
 /**

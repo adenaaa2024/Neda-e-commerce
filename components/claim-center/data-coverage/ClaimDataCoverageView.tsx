@@ -22,11 +22,46 @@ import {
   type ClaimSourceCoveragePayload,
   type SourceCoverageRow,
 } from "@/lib/claims/center/claim-source-coverage-ui-contract";
+import {
+  dataSourceBadgeMeta,
+  type DataSourceHubRow,
+  type DataSourcesHubPayload,
+} from "@/lib/data-sources/data-sources-hub-contract";
 
 const PAGE_CONTRACT = getClaimCenterV2Page("data_coverage");
 
+type CoveragePayloadWithHub = ClaimSourceCoveragePayload & {
+  data_sources_hub?: DataSourcesHubPayload | null;
+};
+
+const HUB_TONE_CLASS: Record<string, string> = {
+  success: "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200",
+  info: "bg-sky-500/15 text-sky-800 dark:text-sky-200",
+  warning: "bg-amber-500/15 text-amber-900 dark:text-amber-100",
+  danger: "bg-rose-500/15 text-rose-800 dark:text-rose-200",
+  neutral: "bg-black/10 text-black/60 dark:bg-white/10 dark:text-white/60",
+};
+
 function yn(v: boolean): string {
   return v ? "Yes" : "No";
+}
+
+function HubStatusChip({ row }: { row: DataSourceHubRow }) {
+  const meta = dataSourceBadgeMeta(row.badge);
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg bg-black/[0.03] px-3 py-2 dark:bg-white/[0.04]">
+      <span className="min-w-0 truncate text-[12px] font-medium" title={row.display_name}>
+        {row.display_name}
+      </span>
+      <span
+        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+          HUB_TONE_CLASS[meta.tone] ?? HUB_TONE_CLASS.neutral
+        }`}
+      >
+        {meta.label}
+      </span>
+    </div>
+  );
 }
 
 function CoverageCard({ row }: { row: SourceCoverageRow }) {
@@ -62,7 +97,7 @@ function CoverageCard({ row }: { row: SourceCoverageRow }) {
 
 export function ClaimDataCoverageView() {
   const { fetchJson, storeId } = useClaimCenter();
-  const [payload, setPayload] = useState<ClaimSourceCoveragePayload | null>(null);
+  const [payload, setPayload] = useState<CoveragePayloadWithHub | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +105,7 @@ export function ClaimDataCoverageView() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchJson<ClaimSourceCoveragePayload>("/api/claims/center/source-coverage");
+      const data = await fetchJson<CoveragePayloadWithHub>("/api/claims/center/source-coverage");
       setPayload(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load source coverage.");
@@ -162,6 +197,24 @@ export function ClaimDataCoverageView() {
                   <li key={m}>{m}</li>
                 ))}
               </ul>
+            </section>
+          ) : null}
+
+          {/* ---- Live source status (single Data Sources Hub) ---- */}
+          {payload.data_sources_hub && payload.data_sources_hub.sources.length > 0 ? (
+            <section className="space-y-3" data-data-sources-hub>
+              <h2 className="text-sm font-bold uppercase tracking-wide opacity-70">
+                Live source status · Data Sources Hub
+              </h2>
+              <p className="text-[11px] opacity-55">
+                Same status the Platform Settings control plane and Claim Center / Sources read from — one source of
+                truth.
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {payload.data_sources_hub.sources.map((row) => (
+                  <HubStatusChip key={row.source_key} row={row} />
+                ))}
+              </div>
             </section>
           ) : null}
 

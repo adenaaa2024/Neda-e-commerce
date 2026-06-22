@@ -7,32 +7,15 @@ import { MoreHorizontal } from "lucide-react";
 import {
   CLAIM_CENTER_PRIMARY_SECTIONS,
   primaryNavToneClass,
+  primarySectionBadgeCount,
   resolveActivePrimarySection,
-  type ClaimCenterPrimarySectionId,
 } from "@/lib/claims/center/claim-center-primary-nav";
 import { CLAIM_CENTER_FLOW_STEPS } from "@/lib/claims/center/claim-center-flow-nav";
 import { ClaimCenterMoreMenu } from "./ClaimCenterMoreMenu";
 import { useClaimCenterFlowCounts } from "./ClaimCenterFlowCountsProvider";
 
-/** Map a primary section to a flow-count badge where one is meaningful. */
-function sectionBadgeCount(
-  id: ClaimCenterPrimarySectionId,
-  counts: ReturnType<typeof useClaimCenterFlowCounts>["counts"],
-): number {
-  switch (id) {
-    case "opportunities":
-      return counts.find_money;
-    case "needs_data":
-      return counts.review;
-    case "reimbursements":
-      return counts.recovery;
-    default:
-      return 0;
-  }
-}
-
 /**
- * Unified primary navigation — the 9 top-level Claim Center sections.
+ * Unified primary navigation — the 10 top-level Claim Center sections.
  * (Workflow-bar markers + classes preserved for shell smoke checks.)
  */
 export function ClaimCenterWorkflowBar() {
@@ -52,7 +35,7 @@ export function ClaimCenterWorkflowBar() {
           {CLAIM_CENTER_PRIMARY_SECTIONS.map((section) => {
             const Icon = section.icon;
             const active = activeId === section.id;
-            const count = sectionBadgeCount(section.id, counts);
+            const count = primarySectionBadgeCount(section.id, counts);
             const showBadge = !loading && count > 0;
 
             return (

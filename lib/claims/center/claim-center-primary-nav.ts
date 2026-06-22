@@ -1,33 +1,38 @@
 /**
- * PHASE-CLAIM_CENTER_UNIFIED_OPPORTUNITIES_UI_V1 — unified primary navigation contract.
+ * PHASE-CLAIM-CENTER-OPPORTUNITIES-NEEDS-READY-UI-V1 — unified primary navigation contract.
  *
- * Single source of truth for the 9 top-level Claim Center sections so the UI clearly
- * separates candidates, opportunities, needs-data, and ready-to-file claims.
+ * Single source of truth for the 10 top-level Claim Center sections so the UI clearly
+ * separates Dashboard, Opportunities, Needs Data, Ready to File, Cases, Submissions,
+ * Reimbursement Tracking, Product Story, Sources, and Rules.
  * Pure data + an active-route resolver. No DB, no Amazon, no AI, no claim math.
  */
 import type { LucideIcon } from "lucide-react";
 import {
   BadgeDollarSign,
-  Boxes,
-  ClipboardCheck,
   Database,
   FileCheck2,
+  FileStack,
   LayoutDashboard,
   Layers3,
+  ScrollText,
   Settings2,
   TriangleAlert,
+  Wallet,
 } from "lucide-react";
+
+import type { ClaimCenterFlowCounts } from "./claim-center-flow-nav";
 
 export type ClaimCenterPrimarySectionId =
   | "dashboard"
   | "opportunities"
   | "needs_data"
   | "ready_to_file"
-  | "filed_tracking"
-  | "reimbursements"
+  | "cases"
+  | "submissions"
+  | "reimbursement_tracking"
   | "product_story"
-  | "data_sources"
-  | "policies";
+  | "sources"
+  | "rules";
 
 /** Semantic tone aligned to the phase color system. */
 export type ClaimCenterNavTone = "neutral" | "opportunity" | "needs_data" | "ready" | "info";
@@ -88,28 +93,38 @@ export const CLAIM_CENTER_PRIMARY_SECTIONS: ClaimCenterPrimarySection[] = [
     description: "Only claims that passed every gate. Seller Central copy enabled.",
   },
   {
-    id: "filed_tracking",
+    id: "cases",
     order: 5,
-    label: "Filed / Tracking",
-    shortLabel: "Filed",
-    href: "/claim-center/reimbursement-tracking",
-    icon: ClipboardCheck,
+    label: "Cases",
+    shortLabel: "Cases",
+    href: "/claim-center/cases",
+    icon: FileStack,
     tone: "info",
-    description: "Filed submissions, match status, and open gaps.",
+    description: "Claim cases grouped for filing and review.",
   },
   {
-    id: "reimbursements",
+    id: "submissions",
     order: 6,
-    label: "Reimbursements",
-    shortLabel: "Paid",
-    href: "/claim-center/recovery",
-    icon: Boxes,
+    label: "Submissions",
+    shortLabel: "Subs",
+    href: "/claim-center/submissions",
+    icon: ScrollText,
     tone: "info",
-    description: "Observed reimbursement signals from imports.",
+    description: "Filed submissions and their recorded Amazon case status.",
+  },
+  {
+    id: "reimbursement_tracking",
+    order: 7,
+    label: "Reimbursement Tracking",
+    shortLabel: "Tracking",
+    href: "/claim-center/reimbursement-tracking",
+    icon: Wallet,
+    tone: "info",
+    description: "Filed money, reimbursement matches, and open gaps.",
   },
   {
     id: "product_story",
-    order: 7,
+    order: 8,
     label: "Product Story",
     shortLabel: "Story",
     href: "/claim-center/references",
@@ -118,9 +133,9 @@ export const CLAIM_CENTER_PRIMARY_SECTIONS: ClaimCenterPrimarySection[] = [
     description: "Product identity + TRID / reference graph per candidate.",
   },
   {
-    id: "data_sources",
-    order: 8,
-    label: "Data Sources / Coverage",
+    id: "sources",
+    order: 9,
+    label: "Sources",
     shortLabel: "Sources",
     href: "/claim-center/data-coverage",
     icon: Database,
@@ -128,9 +143,9 @@ export const CLAIM_CENTER_PRIMARY_SECTIONS: ClaimCenterPrimarySection[] = [
     description: "Which Amazon files/APIs power each claim family, and what is missing.",
   },
   {
-    id: "policies",
-    order: 9,
-    label: "Policies / Settings",
+    id: "rules",
+    order: 10,
+    label: "Rules",
     shortLabel: "Rules",
     href: "/claim-center/policies",
     icon: Settings2,
@@ -145,11 +160,12 @@ const SECTION_ROUTE_ALIASES: Record<ClaimCenterPrimarySectionId, string[]> = {
   opportunities: ["/claim-center/candidates", "/claim-center/preview-generators", "/claim-center/group-builder"],
   needs_data: [],
   ready_to_file: [],
-  filed_tracking: ["/claim-center/reimbursement-tracking", "/claim-center/submissions", "/claim-center/cases", "/claim-center/case-review", "/claim-center/pilot-review"],
-  reimbursements: ["/claim-center/recovery"],
+  cases: ["/claim-center/case-review", "/claim-center/pilot-review"],
+  submissions: [],
+  reimbursement_tracking: ["/claim-center/recovery"],
   product_story: ["/claim-center/references", "/claim-center/product-linkage", "/claim-center/evidence"],
-  data_sources: ["/claim-center/data-coverage", "/claim-center/sources", "/claim-center/runs"],
-  policies: ["/claim-center/policies", "/claim-center/settings"],
+  sources: ["/claim-center/data-coverage", "/claim-center/sources", "/claim-center/runs"],
+  rules: ["/claim-center/policies", "/claim-center/settings"],
 };
 
 function normalizePath(pathname: string): string {
@@ -175,6 +191,49 @@ export function resolveActivePrimarySection(pathname: string): ClaimCenterPrimar
     }
   }
   return null;
+}
+
+/**
+ * Map each primary section to the flow-count key whose value is shown as its badge.
+ * Pure + total over every section id so the workflow bar and smoke share one source.
+ * Sections with no meaningful per-section count (dashboard, policies) return null.
+ */
+export function primarySectionCountKey(
+  id: ClaimCenterPrimarySectionId,
+): keyof ClaimCenterFlowCounts | null {
+  switch (id) {
+    case "opportunities":
+      return "find_money";
+    case "needs_data":
+      return "review";
+    case "ready_to_file":
+      return "ready_to_file";
+    case "submissions":
+      return "filed";
+    case "reimbursement_tracking":
+      return "recovery";
+    case "product_story":
+      return "references";
+    case "sources":
+      return "sources";
+    case "dashboard":
+    case "cases":
+    case "rules":
+      return null;
+    default: {
+      const _exhaustive: never = id;
+      return _exhaustive;
+    }
+  }
+}
+
+/** Resolve the badge count for a section from a flow-counts object. */
+export function primarySectionBadgeCount(
+  id: ClaimCenterPrimarySectionId,
+  counts: ClaimCenterFlowCounts,
+): number {
+  const key = primarySectionCountKey(id);
+  return key ? counts[key] : 0;
 }
 
 /** Tailwind/badge tone class for the small section indicator. */

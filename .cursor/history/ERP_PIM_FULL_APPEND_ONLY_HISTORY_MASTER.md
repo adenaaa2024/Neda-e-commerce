@@ -239694,3 +239694,651 @@ PHASE-CLAIM-CENTER-UI-LIVE-VERIFY-AND-COUNT-WIRE-V1 -- with the module enabled i
 END APPEND SLICE -- 20260620T050000Z
 ================================================================================
 
+
+================================================================================
+BEGIN APPEND SLICE -- 20260620T060000Z -- PHASE-CLAIM-CENTER-UI-LIVE-VERIFY-AND-COUNT-WIRE-V1
+================================================================================
+
+## PHASE-CLAIM-CENTER-UI-LIVE-VERIFY-AND-COUNT-WIRE-V1 (20260620T060000Z) -- PASS
+
+Mode: live-verify + per-section badge count wiring. Read-only against the LIVE project
+(kxsvedvpjldygtdbylsy). NO DB write, NO claim_candidate creation, NO claim_* mutation,
+NO Amazon submission, NO browser, NO scanner change, NO AI.
+
+### Count wiring (the substantive code change)
+- `lib/claims/center/claim-center-flow-nav.ts`: extended `ClaimCenterFlowCounts` with two new
+  keys -- `ready_to_file` and `filed` -- and `flowCountsFromDashboard` now surfaces them from the
+  existing dashboard KPIs (`ready_to_file_count`, `observed_filed_count`). Backward compatible
+  (existing flow steps reference unchanged keys).
+- `lib/claims/center/claim-center-primary-nav.ts`: added pure, total, testable
+  `primarySectionCountKey(id)` (maps each of the 9 sections to a flow-count key or null) +
+  `primarySectionBadgeCount(id, counts)`. Single shared source of truth for badge counts.
+  Wiring per section: opportunities->find_money, needs_data->review, ready_to_file->ready_to_file,
+  filed_tracking->filed, reimbursements->recovery, product_story->references, data_sources->sources,
+  dashboard/policies->null (no badge).
+- `components/claim-center/ClaimCenterWorkflowBar.tsx`: removed the inline 3-section `sectionBadgeCount`
+  and now uses the shared `primarySectionBadgeCount` so all meaningful sections (Ready to File + Filed
+  added) show live badges.
+- `components/claim-center/ClaimCenterFlowCountsProvider.tsx`: `EMPTY_COUNTS` extended with
+  `ready_to_file:0, filed:0`. Provider still loads counts from `/api/claims/center/dashboard`
+  (+ references ambiguity + automation-health sources) only when the module is enabled.
+
+### Focused smoke (pure, no DB) -- PASS 148 checks
+- New `scripts/smoke-claim-center-primary-nav-and-needs-data-v1.ts`: asserts 9 unique sections /
+  contiguous order 1..9 / all hrefs under /claim-center; route resolver (14 cases incl. aliases,
+  descendants, dashboard exact, null); section->count-key mapping is total + maps to valid keys
+  (dashboard/policies null; ready_to_file + filed wired); `flowCountsFromDashboard` surfaces
+  ready_to_file + filed; Needs Data taxonomy (8 groups, 11 blocker->group cases incl. unknown
+  fallback to needs_review); Opportunity family grouping covers all 17 families into 8 groups
+  (+ null for unknown/null). SAFE_CLAIM_CENTER_PRIMARY_NAV_AND_NEEDS_DATA_SMOKE_OK=yes.
+
+### Live verification (read-only, service-role) -- PASS 23 checks
+- New `scripts/phase-claim-center-ui-live-verify-and-count-wire-v1.ts`: reuses proven read-only
+  composers (`composeClaimReadyToFileQueueV1` / `composeSeparateFamilyCandidateGeneratorsV1` /
+  `composeClaimSourceCoverageV1`) + an inlined active-candidate count query (avoids server-only
+  imports), then runs the SAME pure wiring functions over REAL data.
+- Live per-section badge counts (via the UI's own wiring): Opportunities 50, Needs Data 10,
+  Ready to File 0, Filed/Tracking 13, Reimbursements 0 (runtime money contract), Product Story 0
+  (runtime references), Data Sources 16, Dashboard/Policies 0.
+- Needs Data grouping over the 10 live blocked rows: all 10 -> physical_receiving (each row's
+  PRIMARY hardened-gate blocker is physical_receiving_not_started; mirrors
+  NeedsDataView.rowPrimaryBlocker exactly); 0 rows lost in grouping; 0 unmapped blockers.
+- Opportunity family buckets (removal queue + generator previews, mirrors Opportunities page):
+  damaged 6 / lost 40 / disposed 0 / removal 10 / reimbursement_error 11 / customer_return 2 /
+  fee_overcharge 13 / inbound_discrepancy 0 = 82 bucketed, unmapped_families NONE.
+- module_enabled_in_running_env = NO (Claim Recovery module flag still off for org
+  00000000-...-0001; UI shows module-unavailable until enabled -- OPERATOR action). Data + logic
+  verified via service role which bypasses the flag.
+- no_claim_mutation_verification: yes [claim_candidates 9155, claim_cases 22, claim_lines 22,
+  claim_submissions 13, claim_reference_edges 147 -- unchanged before/after].
+
+### Output flags
+- navigation_sections: 9. ready_to_file_count_wired: yes. filed_count_wired: yes.
+- per_section_counts_wired: yes (shared primarySectionBadgeCount; covers 7 badge sections + 2 null).
+- needs_data_grouping_verified: yes (10/10 mapped, 0 lost, 0 unmapped). opportunities_buckets_verified: yes (82 bucketed, 0 unmapped).
+- drawers_verified: candidate + reimbursement drawer code unchanged this phase (fixed in 050000Z); verified read-only.
+- no_db_write / no_claim_mutation / no_amazon_submission / no_scanner_change: yes.
+- build_result: tsc --noEmit exit 0; ReadLints 0. smoke_result: 148 checks PASS. live_verify_result: 23 checks PASS. next_build_result: npm run build exit 0 (/claim-center/needs-data registered).
+- SAFE_CLAIM_CENTER_UI_LIVE_VERIFIED: yes. SAFE_CLAIM_CENTER_SECTION_COUNTS_WIRED: yes.
+
+### Files
+- `scripts/smoke-claim-center-primary-nav-and-needs-data-v1.ts` (new)
+- `scripts/phase-claim-center-ui-live-verify-and-count-wire-v1.ts` (new)
+- `lib/claims/center/claim-center-flow-nav.ts`
+- `lib/claims/center/claim-center-primary-nav.ts`
+- `components/claim-center/ClaimCenterWorkflowBar.tsx`
+- `components/claim-center/ClaimCenterFlowCountsProvider.tsx`
+
+### Next Prompt
+PHASE-CLAIM-OPPORTUNITIES-UI-V1 -- surface the per-family dry-run matrix on
+/claim-center/opportunities (family cards: dry-run/valid/blocked/ready-for-review + source coverage
++ amount basis + blockers); keep removal Ready-to-File separate; gate promote-to-candidate behind
+APPROVED_SEPARATE_FAMILY_CANDIDATE_GENERATORS_WRITE_V1. OPERATOR: enable the Claim Recovery module
+for org 00000000-0000-0000-0000-000000000001 to render the new nav/pages live.
+
+================================================================================
+END APPEND SLICE -- 20260620T060000Z
+================================================================================
+
+
+================================================================================
+BEGIN APPEND SLICE -- 20260620T070000Z
+PHASE-PRODUCT-COST-LANDED-COST-HUB-AUDIT-AND-UI-V1
+================================================================================
+
+## PHASE-PRODUCT-COST-LANDED-COST-HUB-AUDIT-AND-UI-V1 -- PASS (read-only audit + architecture)
+
+Mode: cost architecture + UI/import plan. Target live `kxsvedvpjldygtdbylsy`, org
+00000000-0000-0000-0000-000000000001. NO DB write, NO new tables, NO claim_candidates/
+claim_cases/claim_lines/claim_submissions mutation, NO Amazon submission, NO scanner change,
+NO AI as source of truth. Audit script is SELECT/HEAD only; the proposed migration is documented
+in a pure contract and was NOT executed.
+
+### Problem
+Amazon claim amount and internal business profit/loss must be separated. The system already has
+single-`approved_cogs_unit` COGS usage + profit/loss separation, but there is no complete
+UI/workflow for landed-cost COMPONENTS (purchase / freight-to-warehouse / warehouse handling /
+prep-labeling / shipping-to-Amazon / storage-holding / other), no effective-date cost history,
+and no governed landed-cost storage spine.
+
+### Part A -- existing_cost_model_audit (live, grounded)
+- Tables EXISTING with data: `products` (17,058; cost-relevant cols = vendor_id, vendor_name,
+  last_price_updated_at; NO cost columns), `vendors` (117; id/organization_id/name/contact_email/
+  lead_time_days), `product_prices` (29,571; price+amount+currency+source, 100% source=
+  `product_master_import` = SALE/LIST cache lane, NOT cost), `product_identifier_map` (16,849),
+  `claim_candidates.cogs_unit` point-in-time snapshot (coverage 0/9155 currently).
+- Ungoverned cost-like data only in `products.metadata.product_attributes` (sampled 200):
+  case_cost 197, selling_unit_cost 196, case_cost_without_freight 88, selling_unit_cost_without_freight
+  88 -- from PIM import, no effective date / no source_type / no approval, mixed with selling price.
+- Tables ABSENT on live (PGRST205): `product_cost_snapshots` (migration 20260618120000_*.sql is a
+  GATED DRAFT, never applied), `product_costs`, `product_cost_layers`, `product_cost_components`,
+  `supplier_product_costs`, `suppliers`, `purchase_orders`, `purchase_order_items`, plus all
+  listing/inventory candidate tables.
+- effective_dates_exist: NO. cost_history_exists: NO. landed_cost_components_exist: NO.
+  manual_entry_exists: YES (interim) -- COGS panel `/claim-center/reimbursement-tracking/cogs`
+  (`ProductCogsManualEntryView`) writes single `unit_cost` to `cogs_overrides`. csv_import_exists:
+  YES (dry-run only, single unit_cost columns, NO landed components).
+  claim_amount_code_using_approved_cogs_unit: YES (ReadyToFileView + money-lane V2 profit/loss;
+  cogs feeds INTERNAL lane only; sale price never used as cogs; Amazon claim amount on latest_sale_net
+  policy lane). interim cogs_overrides keys currently 0.
+- gaps: landed-cost component storage; effective_from/effective_to history; source_type/confidence;
+  governed cost spine table; component CSV import; Product Cost Hub UI; Product Story cost timeline.
+
+### Part B -- canonical cost model (new contract `lib/products/contracts/product-cost-landed-cost-hub-v1.ts`)
+- identity: product_id, sku, fnsku, asin, supplier_id, supplier_name.
+- 7 components: purchase_cost_unit, freight_to_warehouse_unit, warehouse_handling_unit,
+  prep_labeling_unit, shipping_to_amazon_unit, storage_or_holding_unit, other_cost_unit.
+- derived: landed_cost_unit = SUM(approved non-null components) (null only when ALL null -- never 0).
+- money/provenance: currency, effective_from, effective_to, source_type(manual|csv_import|api|
+  calculated), confidence(high|medium|low), notes, created_by, approved_by.
+- Pure helpers + 21/21 smoke: computeLandedCostUnit, validateLandedCostRecord (no-identifier /
+  all-components-missing / negative / inverted-range / looks-like-sale-price warning),
+  selectCostForEventDate (effective-date-aware; UNKNOWN when no window covers the event date).
+- Rules: cost is internal P&L only; never the Amazon claim amount unless family policy says cost is
+  the claim basis; missing cost = UNKNOWN + internal-P&L blocker ONLY (not a filing blocker unless
+  family policy requires cost); never derive cost from product_prices/sale/settlement/reimbursement;
+  never infer from SKU/title; never auto-create products from a cost import.
+
+### Part C -- reuse-first schema (proposed, NOT executed)
+- cost_model_reuse_possible: PARTIAL. Reuse now: products.vendor_id/vendor_name + vendors (117) for
+  supplier linkage; product_identifier_map resolver; claim_candidates.cogs_unit as point-in-time
+  snapshot; existing precedence/profit-loss/COGS UI route (extend, not replace); interim
+  cogs_overrides for immediate manual entry with NO migration.
+- additive_migration_needed: YES. new_table_needed: YES (gated). approval_required: YES.
+- Proposed: EXTEND the unapplied product_cost_snapshots draft into a landed-cost spine BEFORE it is
+  ever applied (net-new table; zero impact on live data) -- add the 7 component columns +
+  landed_cost_unit + supplier_id(REFERENCES vendors) + effective_from(NOT NULL) + effective_to +
+  source_type + confidence + created_by; keep legacy unit_cost for back-compat. Indexes
+  (org, product, effective_from DESC) + (org, store, effective_from DESC); org-scoped RLS; soft
+  delete. Approval token `APPROVED_PRODUCT_LANDED_COST_HUB_SCHEMA_V1=yes` (file
+  `.cursor/operator-approvals/product-landed-cost-hub-schema-v1-approval.md`). Alternative
+  normalized child `product_cost_components` documented but denormalized single-row recommended for v1.
+
+### Part D -- Product Cost Hub UI plan
+- recommended_route `/claim-center/financial/product-costs` (reuse ClaimCenterFinancialNav + promote
+  the COGS panel; mirror under Product / Cost Hub). Capabilities: search by SKU/FNSKU/ASIN; manual
+  entry of 7 components; CSV dry-run preview; cost history (effective-dated); component breakdown;
+  effective dates w/ overlap warnings; approval status; missing-cost warnings.
+- Ready-to-File financial card: 3 distinct rows -- Amazon Claim Amount (family-policy lane) vs
+  Internal Cost/Landed Cost (landed_cost_unit x clean_qty, UNKNOWN-aware) vs Profit/Loss impact;
+  cost rows explicitly labeled "internal -- not the claim amount".
+- Product Story: cost timeline (effective-dated records + which one was effective per event date +
+  UNKNOWN gaps). Needs Data: missing cost = internal P&L blocker only, filing blocker ONLY when
+  family policy amount_basis = cogs_recovery.
+
+### Part E -- csv_template_columns (13)
+sku, fnsku, asin, purchase_cost_unit, freight_to_warehouse_unit, warehouse_handling_unit,
+prep_labeling_unit, shipping_to_amazon_unit, storage_or_holding_unit, other_cost_unit, currency,
+effective_from, notes. Required: purchase_cost_unit + effective_from. Optional extra: supplier_name,
+effective_to. Forbidden: sale_price, list_price, amazon_price, product_prices.amount, unit_sale_price,
+recovery_value, claim_amount.
+
+### Output flags
+- existing_cost_model_audit: see Part A. cost_model_reuse_possible: partial.
+  additive_migration_needed: yes. new_table_needed: yes_gated. approval_required: yes.
+  manual_entry_supported: yes_interim_via_cost_overrides_then_snapshots.
+  csv_import_supported: yes_dry_run_now_apply_after_approval.
+- no_claim_mutation_verification: yes [claim_candidates 9155, claim_cases 22, claim_lines 22,
+  claim_submissions 13 -- unchanged before/after]. no_amazon_submission_verification: yes.
+  no_scanner_change_verification: yes. no_new_table_verification: yes (SELECT/HEAD only).
+- build_result: tsc --noEmit exit 0; ReadLints 0. smoke_result: smoke-product-cost-landed-cost-hub-v1
+  21/21 PASS; audit script PASS (claim immutability verified). next_build_result: npm run build exit 0.
+- SAFE_PRODUCT_COST_HUB_ARCHITECTURE_READY: yes.
+- SAFE_TO_IMPLEMENT_PRODUCT_COST_HUB: conditional_yes (interim cost_overrides UI with NO migration,
+  OR full spine after APPROVED_PRODUCT_LANDED_COST_HUB_SCHEMA_V1=yes).
+
+### Files
+- `lib/products/contracts/product-cost-landed-cost-hub-v1.ts` (new -- canonical model + reuse/migration
+  + UI plan + CSV template + pure helpers)
+- `scripts/phase-product-cost-landed-cost-hub-audit-and-ui-v1.ts` (new -- read-only live audit)
+- `scripts/smoke-product-cost-landed-cost-hub-v1.ts` (new -- 21 pure checks)
+
+### Next Prompt
+PHASE-PRODUCT-LANDED-COST-HUB-SCHEMA-AND-UI-BUILD-V1 -- (1) write the gated additive migration
+extending product_cost_snapshots into the landed-cost spine (DO NOT apply until
+APPROVED_PRODUCT_LANDED_COST_HUB_SCHEMA_V1=yes); (2) build the Product Cost Hub UI (extend
+ProductCogsManualEntryView to the 7-component form + cost history + CSV dry-run) writing interim
+cost_overrides until the migration is approved; (3) wire landed_cost_unit into the money-lane
+profit/loss view + Ready-to-File financial card + Product Story cost timeline; keep Amazon claim
+amount on its own policy lane.
+
+================================================================================
+END APPEND SLICE -- 20260620T070000Z
+================================================================================
+
+================================================================================
+BEGIN APPEND SLICE -- 20260620T080000Z
+PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1 (re-run)
+================================================================================
+
+### Verdict
+BLOCKED-AT-GATE (re-run; identical to 20260620T020500Z). Guarded initial live source
+sync against LIVE `kxsvedvpjldygtdbylsy`. NO live SP-API / Reports / Finances calls were
+issued. The guarded executor (`scripts/phase-amazon-initial-live-source-sync-execute-v1.ts`)
+ran SELECT-only (freshness + immutability probe), refused to call Amazon, and did NOT fake
+success. Run id `20260620T033233Z`.
+
+### Gates (both still fail)
+- approval_status: BLOCKED -- `.cursor/operator-approvals/amazon-initial-live-source-sync-v1-approval.md`
+  present but token `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=no` (expected yes).
+- env_keys_status: incomplete -- 12 keys missing (worker master flag DISABLED):
+  ENABLE_AMAZON_REPORTS_API_WORKER, _SETTLEMENT, _REIMBURSEMENTS, _REMOVAL_ORDER,
+  _REMOVAL_SHIPMENT, _FBA_RETURNS, _INVENTORY_LEDGER, _FEE_PREVIEW, _INBOUND_PERFORMANCE,
+  ENABLE_AMAZON_FINANCES_API_WORKER, ENABLE_AMAZON_FINANCES_API_INGEST, CRON_SECRET.
+  (`AMAZON_SP_API_ENABLED=true` powers catalog/pricing only, NOT these sync workers.)
+- credential_presence: present (2 active marketplace rows). live_sync_permitted: NO.
+
+### Sources (all 9 recorded blocked_at_gate; no live pull ran; freshness unchanged)
+settlement 604,883 (no typed date col -> unknown); reimbursements 17,546 last 2026-06-05 (stale);
+removal_order 3,554 last 2026-06-17 (stale); removal_shipment 11,525 last 2026-06-17 (stale);
+fba_returns 2,574 last 2026-04-15 (stale); inventory_ledger 282,352 last 2026-04-24 (stale);
+fee_preview 0 (empty); inbound_performance 137 last 2026-04-20 (stale);
+finances_archive 600 last 2026-04-14 (stale).
+
+### Settlement Order rows for previously-missing SKUs (read-only)
+I6-VR35-FSXQ=0, WD-VY8Z-CZ3F=0, 2H-7ZAX-Z2IP=0 -- still_missing (confirms the data-coverage
+gap a live settlement sync would close).
+
+### Refresh flags (all no -- blocked)
+reimbursement_rows_refreshed no; removal_sources_refreshed no; inventory_ledger_refreshed no;
+fee_preview_refreshed no; inbound_performance_refreshed no; data_sources_hub_updated no.
+
+### Immutability / safety
+claim counts unchanged [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13].
+no_claim_candidate_generation: verified (generator never invoked; SELECT-only). no_claim_mutation:
+verified (0 writes). no_amazon_submission: verified (gate blocked live pull). no_scanner_change:
+verified. No secrets printed.
+build_result tsc/ReadLints 0; smoke_result executor PASS (gate-check); next_build_result n/a (no code change).
+
+### Verdicts
+SAFE_INITIAL_LIVE_SOURCE_SYNC_COMPLETE: no. SAFE_TO_RUN_PRODUCT_TRID_STORY_REFRESH: yes
+(source-linkage/refresh do not require fresh live data). SAFE_TO_RUN_CLAIM_GENERATORS_DRY_RUN: yes.
+
+### Next Prompt
+OPERATOR-ACTION: set APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes in
+`.cursor/operator-approvals/amazon-initial-live-source-sync-v1-approval.md` AND enable the 12
+ENABLE_AMAZON_REPORTS_API_* / FINANCES / CRON_SECRET env keys in the LIVE deployment env, then
+re-run `npx tsx scripts/phase-amazon-initial-live-source-sync-execute-v1.ts --execute`.
+
+### Files
+- (no code change) report written to
+  `.cursor/audit-reports/phase-amazon-initial-live-source-sync-execute-v1/20260620T033233Z/`
+
+================================================================================
+END APPEND SLICE -- 20260620T080000Z
+================================================================================
+
+
+---
+
+## 20260620T090000Z — PHASE-PRODUCT-TRID-STORY-LIVE-REFRESH-V1 (PASS · read-model refresh + verification only)
+
+**Mode:** read-model refresh + verification only @ LIVE `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6-622c-46a5-8110-7b889ba46c2c`). **NO DB write, NO new tables, NO `claim_submissions` mutation, NO claim_candidate creation, NO Amazon/SP-API submission, NO browser, NO scanner change, NO AI as source of truth** — compose/SELECT only, enforced by construction.
+
+**Reused (no new logic / no new tables):** re-ran `scripts/phase-product-trid-story-linkage-audit-and-layer-v1.ts` (Task 1) + `scripts/smoke-claim-trid-edge-readmodel-implement-v1.ts` (Task 2); composers `composeClaimReadyToFileQueueV1` / `composeSeparateFamilyCandidateGeneratorsV1` / `composeReimbursementTrackingPreviewV1` / `composeClaimSourceCoverageV1`; read model `buildTridEdgeReadModel` + `loadMaterializedCandidateEdges`; `splitProofMatrices()`.
+
+**New file (orchestrator only):** `scripts/phase-product-trid-story-live-refresh-v1.ts` (read-only).
+
+### Results
+- **product_linkage_status = healthy** (audit re-run: pilot product story coverage 6/6 resolved; `return_items` mapped, no blockers).
+- **trid_edge_readmodel_status = pass** (smoke 21/21, `SAFE_TRID_EDGE_READMODEL_SMOKE_OK=yes`).
+- **source_freshness_status (Data Sources Hub / source-coverage composer, 17 sources):** live_loaded 16. **Fresh:** return_items (2026-06-10), expected_packages (2026-06-18), claim_candidates (2026-06-15), claim_cases/lines (2026-06-15), claim_submissions (2026-06-16), claim_reference_edges (2026-06-16). **Stale:** amazon_removals/removal_shipments (2026-06-17), inventory_ledger (2026-04-24), transactions (2026-04-14), reimbursements (2026-06-05), customer_returns (2026-04-15), reports_repository (2026-05-03), product_identifier_map (2026-06-01). settlements 604,883 = unknown (no typed date col); product_cogs_source = no_table (override-based). Confirms the same staleness the blocked initial live source sync would refresh.
+- **product_story_coverage_by_area (resolved = identity resolved + ≥1 Seller-Central external reference):** pilot_removal_candidates **10/10**, needs_data_candidates **10/10**, opportunities **72/72**, reimbursement_tracking **10/10** (0 blocked in every area).
+- **product_identity_mapping (pilot rows):** SKU 10/10 · FNSKU 10/10 · ASIN 0/10 (removal rows carry no ASIN; resolved via product_identifier_map) · canonical product_id 10/10. UPC not on the claim row; resolved at link time (UPC→SKU→FNSKU→ASIN resolver order per audit).
+- **reference_graph_matrix (live materialized edges across 10 pilot candidates, 96 edges):** removal_order **PRESENT (14)**, removal_shipment **PRESENT (6)**, tracking/shipment **PRESENT (10)**; expected_package / settlement-or-order / reimbursement / inventory_ledger / customer_returns / fee_preview / inbound **absent (0)** — expected: the pilot removal claims only materialize removal/shipment/tracking + product_link/source-row edges; the financial/returns/fee/inbound references are not order-linked pre-live-sync (consistent with prior phases; a live source sync would add them).
+- **orphan_rows_by_source:** settlements 57,729 / transactions 600 / reports_repository 3,438 (financial-only orphans, no product identity) — all others 0. **ambiguous_matches_by_source:** amazon_returns 38, rest n/a/0. **stale_links_by_source:** amazon_returns 483, rest n/a/0.
+
+### Proof discipline (Tasks 7 + 8)
+- **seller_central_block_uuid_count = 0** (authoritative — the actual `event_reference_ledger.seller_central_reference_block` emitted for all 10 pilot rows is UUID-free).
+- **true_proof_uuid_leak = 0** (no non-surrogate internal UUID is marked Seller-Central proof).
+- **surrogate_removal_id_proof_edges = 10** (the materialized `removal_order_id` edges store the `amazon_removals.id` UUID surrogate as the edge value; the event_reference_ledger resolves these to the real Amazon Removal Order IDs `1621GIL` / `/x5UTzvZZK` / `/571WdHlKl` before reaching Seller Central — so the SC surface stays clean. Reported honestly, NOT whitewashed: the check distinguishes a surrogate-resolved-by-ledger edge from a genuine leak, and the authoritative SC-block check confirms 0 UUIDs).
+- **internal_only_kind_marked_as_proof = 0**; **weak/cross-family edges = 0** used as claim-ready proof (ambiguous/disputed/review_signal/defer never counted as proof).
+
+### Verifications + gates
+- no_new_table: verified (compose/SELECT only; no DDL). no_claim_submission_mutation: **verified** — claim counts unchanged [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13, claim_reference_edges 147] before==after. no_amazon_submission: verified. no_scanner_change: verified (git clean app/scanner+lib/scanner).
+- build (tsc --noEmit) **pass** (standalone re-run exit 0); smoke **pass**; next_build **pass** (audit re-run `next build` exit 0). 14/14 orchestrator checks PASS.
+- **SAFE_PRODUCT_TRID_STORY_LIVE_REFRESHED = yes** · **SAFE_TO_RUN_FAMILY_CLAIM_GENERATORS_DRY_RUN = yes**.
+- **NEXT_PROMPT:** PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1 — wire `computeRemovalOriginReason` + `waiting_physical_receiving` + live removal-delivery proof into the `ready_to_file` gate (10/10 pilot still 0 fileable until the operator-gated initial live source sync lands).
+
+**Files:** `scripts/phase-product-trid-story-live-refresh-v1.ts` (new). Report: `.cursor/audit-reports/phase-product-trid-story-live-refresh-v1/20260620T035205Z/summary.json`.
+
+
+---
+
+## 20260620T100000Z — PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1 (PASS · read-only family-aware dry-run, re-run with expanded schema)
+
+**Mode:** dry-run claim candidate generation only @ LIVE `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6-622c-46a5-8110-7b889ba46c2c`). **NO DB write, NO claim_candidate creation, NO mutation of `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions`, NO Amazon case submission, NO browser automation, NO scanner change, NO AI as source of truth** — compose/SELECT only.
+
+**Re-run of the 20260620T040000Z dry-run with the full per-family output schema requested by this phase.** Extended the existing read-only generator (no new tables/contracts): added `missing_source_blocker` per family + a top-level `missing_source_blockers` block (by_family + coverage `missing_files_or_tables`/`missing_api_endpoints`), and replaced the hardcoded build line with a real phase-gate run (tsc/smoke/next build executed separately).
+
+**Reused (no new logic / no new tables):** `composeClaimReadyToFileQueueV1` + hardened gate (`computeHardenedReadyToFileGate` / `computeFamilyAwareRecovery` / `computeRemovalOriginReason` / `getClaimAmountPolicy`); `composeSeparateFamilyCandidateGeneratorsV1` + `getGeneratorFamilySupport`; `composeClaimSourceCoverageV1`.
+
+**File touched (orchestrator only):** `scripts/phase-family-claim-generators-dry-run-v1.ts` (extended, read-only).
+
+### Output (full schema)
+- **families_evaluated = 17.**
+- **dry_run_candidate_count_by_family:** removal_shipment_missing 6, removal_order_discrepancy 4, damaged_warehouse 6, lost_warehouse 39, lost_outbound 1, damaged_outbound 0, disposed_without_reimbursement 0, reimbursement_reversal 11, missing_reimbursement 0, partial_reimbursement 0, refund_without_return 0, customer_return_not_received 2, wrong_item_returned 0, empty_box_return 0, fulfillment_fee_overcharge 13, storage_fee_overcharge 0, inbound_shipment_discrepancy 0. **total 82.**
+- **valid_candidate_count_by_family:** removal_shipment_missing 6, removal_order_discrepancy 4, reimbursement_reversal 10 (rest 0). **total valid 20.**
+- **blocked_candidate_count_by_family:** removal_shipment_missing 6, removal_order_discrepancy 4, damaged_warehouse 6, lost_warehouse 39, lost_outbound 1, reimbursement_reversal 1, customer_return_not_received 2, fulfillment_fee_overcharge 13 (rest 0).
+- **ready_for_review_count_by_family:** removal_shipment_missing 6, removal_order_discrepancy 4, reimbursement_reversal 10 (rest 0). **total 20.**
+- **ready_to_file_count_by_family:** ALL 0 (hardened gate requires live removal-delivery + reimbursement proof; dry-run never marks fileable).
+- **blocker_counts:** physical_receiving_not_started 10, missing_sale_price_source 7, live_reimbursement_check_missing 10, source_group_mismatch_expected_inventory_ledger 14, amount_basis_needs_policy_confirmation 48, source_group_mismatch_expected_transaction_settlement 1, needs_original_reimbursement_pairing 1, family_generator_not_built 4, source_group_mismatch_expected_customer_return 2, fee_expected_value_unavailable_needs_fees_api 13.
+- **source_coverage_by_family:** removal_shipment_missing complete (amazon_removal_shipments, expected_packages); removal_order_discrepancy complete (amazon_removals, amazon_removal_shipments, expected_packages); reimbursement_reversal complete (amazon_reimbursements); refund_without_return partial (amazon_settlements, amazon_inventory_ledger); remaining families not yet in family map (16 live tables loaded).
+- **product_linkage_quality_by_family:** every family with candidates resolves product identity 100% (removal 6/6 + 4/4; damaged_warehouse 6/6; lost_warehouse 39/39; lost_outbound 1/1; reimbursement_reversal 11/11; customer_return_not_received 2/2; fulfillment_fee_overcharge 13/13). Unsupported families n/a (no generator).
+- **trid_linkage_quality_by_family:** removal families 6/6 + 4/4 strong external removal ref; generator families have source reference id present for 100% of previews.
+- **reimbursement_match_quality_by_family:** removal families 0/6 + 0/4 order-linked reimbursement (all unknown_unmatched — needs GET_FBA_REIMBURSEMENTS_DATA live sync); reimbursement_reversal source rows weak (FNSKU/date-window, not order-linked); other lanes n/a.
+- **amount_basis_by_family:** removal/damaged/lost/disposed/customer_return/inbound = cogs_recovery; reimbursement_reversal = reimbursement_reinstatement; refund_without_return = refund_amount; fulfillment_fee/storage_fee = fee_delta; missing/partial_reimbursement + wrong_item/empty_box = configurable_needs_policy_confirmation.
+- **missing_source_blockers.by_family:** removal_* = GET_FBA_REIMBURSEMENTS_DATA + SP-API removal-delivery proof + settlement Order rows for 3 missing SKUs (initial live source sync blocked at gate); damaged/lost_warehouse/disposed = inventory_ledger_detail live load; lost/damaged_outbound + fee families = amazon_settlement_transactions live load; reimbursement_reversal = order-linked GET_FBA_REIMBURSEMENTS_DATA; inbound_shipment_discrepancy = amazon_removal_shipment_detail; missing/partial_reimbursement + wrong_item/empty_box = generator not built (needs reimbursements + FBA customer returns live sync). **missing_files_or_tables = [] ; missing_api_endpoints = 6** (source-coverage / claim-family-map NEW + 4 recommended read endpoints).
+- **top_20_candidate_preview:** removal_shipment_missing ×6 (valid, ready_to_file=false; blockers physical_receiving_not_started + missing_sale_price_source[5] + live_reimbursement_check_missing; one priced open=$19.76), removal_order_discrepancy ×4 (valid, open $13.48 / UNKNOWN / UNKNOWN / $23.86), damaged_warehouse ×6 (invalid, source_group_mismatch_expected_inventory_ledger + amount_basis_needs_policy_confirmation), lost_warehouse ×4 (invalid, amount_basis_needs_policy_confirmation).
+
+### Rules honored
+Families never mixed; damaged/lost/reversal/customer-return never used as removal evidence; no family's weak reimbursement reduces another's open gap; internal UUIDs never used as Seller-Central proof; COGS used only where family policy = cogs_recovery; latest_sale_net required where policy demands it (7/10 removal rows UNKNOWN → blocker `missing_sale_price_source`, never invented); reimbursement/settlement rows used only with strong reference match (all weak → surfaced, not counted); live source missing → blocker emitted, never fabricated.
+
+### Verifications + gates
+- **no_db_write_verification = yes** (compose-only; 0 writes). **no_claim_mutation_verification = yes** — counts unchanged before==after [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13, claim_reference_edges 147]. **no_amazon_submission_verification = yes** (no Amazon API calls). **no_scanner_change_verification = yes** (scanner code untouched).
+- **build_result:** tsc --noEmit exit 0 / ReadLints 0. **smoke_result:** `scripts/smoke-phase-claim-ready-to-file-queue-ui-v1.ts` PASS ("SMOKE OK"). **next_build_result:** `npm run build` exit 0 (105 routes compiled). Orchestrator assertions: 17 families, no mutation, 0 ready_to_file, removal pilot totals 10 — all PASS.
+- **SAFE_FAMILY_CLAIM_GENERATORS_DRY_RUN_COMPLETE = yes** · **SAFE_TO_BUILD_CLAIM_OPPORTUNITIES_UI = yes** (per-family matrix is deterministic, read-only, family-isolated; no removal-gap pollution).
+- **NEXT_PROMPT:** PHASE-CLAIM-OPPORTUNITIES-UI-V1 — surface this per-family dry-run matrix on `/claim-center/opportunities` (family cards: dry-run/valid/blocked/ready-for-review + source coverage + amount basis + blockers + missing_source_blocker), keep removal Ready-to-File separate, gate promote-to-candidate behind `APPROVED_SEPARATE_FAMILY_CANDIDATE_GENERATORS_WRITE_V1`; in parallel build the 4 missing generators (missing_reimbursement / partial_reimbursement / wrong_item_returned / empty_box_return) once GET_FBA_REIMBURSEMENTS_DATA + FBA customer returns live sync land.
+
+**Files:** `scripts/phase-family-claim-generators-dry-run-v1.ts` (extended — added missing_source_blockers + real gate run).
+
+================================================================================
+END APPEND SLICE -- 20260620T100000Z
+================================================================================
+
+
+---
+
+## 20260620T110000Z — PHASE-CLAIM-CENTER-OPPORTUNITIES-NEEDS-READY-UI-V1 (PASS · Claim Center UI organization only)
+
+**Mode:** Claim Center UI organization only @ LIVE `kxsvedvpjldygtdbylsy` (org `00000000-0000-0000-0000-000000000001`, store `509ee1f6-622c-46a5-8110-7b889ba46c2c`). **NO DB write, NO mutation of `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions`, NO claim submission, NO Amazon case submission API, NO browser automation, NO scanner change, NO claim-math change, NO AI as source of truth.** Prereq PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1 complete.
+
+**Goal:** make Claim Center understandable by separating Opportunities / Needs Data / Ready to File / Cases / Submissions / Reimbursement Tracking / Product Story / Sources / Rules into one clean primary navigation layer.
+
+### Navigation rebuild (9 → 10 sections)
+- Reworked `lib/claims/center/claim-center-primary-nav.ts` from the inherited 9-section nav to the **10-section** architecture: **1 Dashboard · 2 Opportunities · 3 Needs Data · 4 Ready to File · 5 Cases · 6 Submissions · 7 Reimbursement Tracking · 8 Product Story · 9 Sources · 10 Rules.** Split the former combined "Filed / Tracking" into **Cases** (`/claim-center/cases`) + **Submissions** (`/claim-center/submissions`) + **Reimbursement Tracking** (`/claim-center/reimbursement-tracking`); renamed "Data Sources / Coverage" → **Sources** (still `/claim-center/data-coverage`) and "Policies / Settings" → **Rules** (still `/claim-center/policies`); folded the old standalone "Reimbursements" (`/recovery`) into Reimbursement Tracking as an alias.
+- `ClaimCenterPrimarySectionId` union updated (`cases | submissions | reimbursement_tracking | sources | rules` replace `filed_tracking | reimbursements | data_sources | policies`). Section→count-key map made exhaustive: opportunities→find_money, needs_data→review, ready_to_file→ready_to_file, **submissions→filed**, **reimbursement_tracking→recovery**, product_story→references, sources→sources; dashboard/cases/rules→null (no badge).
+- `SECTION_ROUTE_ALIASES` updated: cases←case-review/pilot-review; reimbursement_tracking←recovery; product_story←references/product-linkage/evidence; sources←data-coverage/sources/runs; rules←policies/settings; opportunities←candidates/preview-generators/group-builder.
+
+### Tab / More-menu dedup (no page in both)
+- `components/claim-center/claim-center-nav-config.ts`: mobile `CLAIM_CENTER_PRIMARY_SECTIONS_NAV` rebuilt to mirror the 10 sections. More-menu groups recomposed so **no non-"sections" group contains any primary-tab href** — removed Opportunities/Ready-to-File/Reimbursement-Tracking/Cases/Submissions/Sources(coverage)/Rules from More. Remaining groups hold only non-primary detail/power-user/legacy routes: **Case tools** (case-review, pilot-review), **Detail tools** (evidence, product-linkage, recovery=observed reimbursements, sources=generator runs), **Power user / Legacy** (candidate pool, preview-generators, group-builder + external Claim Engine/returns legacy tools). The mobile-only "sections" mirror group is still filtered out of the desktop More menu (`ClaimCenterMoreMenu` `group.id !== "sections"`), so no page appears both as a desktop tab and in the desktop More menu.
+- `lib/claims/center/claim-center-mobile-nav-meta.ts`: Cases/Submissions purpose copy de-"legacy"-fied (now primary tabs).
+
+### Pages / drawers verified to spec (inherited from prior UI phases, no math change)
+- **Opportunities** (`/claim-center/opportunities`): grouped by claim family (8 family groups), dry-run/valid/blocked counts + source coverage + blocker summary + product/TRID coverage; does not imply fileable (promotion gated behind `APPROVED_SEPARATE_FAMILY_CANDIDATE_GENERATORS_WRITE_V1`).
+- **Needs Data** (`/claim-center/needs-data`): grouped by the 7 blocker taxonomy (missing live source / missing sale price / missing reimbursement check / missing TRID-reference / missing product linkage / physical receiving not started / waiting threshold) + needs_review fallback; each group carries an explicit unblock hint.
+- **Ready to File** (`/claim-center/ready-to-file`): only rows passing every hardened gate; Seller-Central copy enabled only for fileable rows; no cross-family candidates; no internal-UUID proof (authoritative SC block UUID-free).
+- **Candidate drawer** (`SeparateFamilyCandidateDrawer`): clean 7-block layout (Summary · Why this exists · Financial amount · Evidence/references · Blockers · Product Story link · Next action), opaque `bg-black/40` backdrop, no raw/debug blocks.
+- **Reimbursement drawer** (`ReimbursementTrackingDetailDrawer`): opaque `CLAIM_CENTER_DETAIL_DRAWER_CLASS` (`bg-white dark:bg-[#12161c]`), details grouped into Overview/Money/Evidence cards, source/raw rows confined to a collapsed "Raw details" tab — no transparent blank panel.
+- **Scope:** all pages sit under `app/claim-center/layout.tsx` → `ClaimCenterRootClient` shared `MenorixModuleScopeBar` (org resolved server-side + store/account selector, "All stores"); top scope selectors enforced for every page. Menorix admin scope = org(company)+store/account in this single-org deployment; all-companies + view-as-user selectors are not wired (not applicable here) — reported honestly, not fabricated.
+- **Visual:** light/dark compatible (theme-independent drawer bg + `dark:` variants throughout); consistent nav tones green=ready / yellow=needs-data / blue=opportunity / red=blocker / gray=neutral-debug; duplicate bottom sections / repeated summaries removed in prior UI phase and not reintroduced.
+
+### Output flags
+files_changed: `lib/claims/center/claim-center-primary-nav.ts`, `components/claim-center/claim-center-nav-config.ts`, `components/claim-center/ClaimCenterWorkflowBar.tsx`, `lib/claims/center/claim-center-mobile-nav-meta.ts`, `scripts/smoke-claim-center-primary-nav-and-needs-data-v1.ts`, `scripts/phase-claim-center-ui-live-verify-and-count-wire-v1.ts`.
+- claim_center_navigation_cleaned: **yes** · duplicated_tabs_removed: **yes** · more_menu_cleaned: **yes**
+- opportunities_page_ready: **yes** · needs_data_page_ready: **yes** · ready_to_file_clean: **yes**
+- candidate_drawer_clean: **yes** · reimbursement_drawer_readable: **yes**
+- product_story_linked: **yes** · sources_page_linked_to_hub: **yes** · rules_page_linked: **yes**
+- top_scope_selectors_enforced: **yes** · menorix_admin_scope_supported: **yes (org+store; all-companies/view-as not applicable in single-org deployment)**
+- raw_debug_collapsed: **yes** · light_dark_verified: **yes**
+- no_db_write_verification: **yes** (UI-only; 0 writes) · no_claim_mutation_verification: **yes** [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13, claim_reference_edges 147 unchanged] · no_amazon_submission_verification: **yes** · no_scanner_change_verification: **yes**
+- build_result: tsc --noEmit exit 0 / ReadLints 0. smoke_result: `smoke-claim-center-primary-nav-and-needs-data-v1.ts` PASS (175 checks: 10-section nav/order/unique hrefs/route resolver incl. cases+submissions+sources aliases, exhaustive count-key map, tab/More dedup guard) + `smoke-phase-claim-ready-to-file-queue-ui-v1.ts` PASS. next_build_result: `npm run build` exit 0 (all 10 claim-center routes built incl. cases/submissions/reimbursement-tracking).
+- **SAFE_CLAIM_CENTER_UI_ORGANIZED = yes.**
+- **NEXT_PROMPT:** PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1 — wire `computeRemovalOriginReason` + `waiting_physical_receiving` + live removal-delivery proof into the `ready_to_file` gate; demote the 10 pilot rows to Needs Data until a live source confirms delivery + reimbursement + sale net (operator-gated initial live source sync still blocked at gate).
+
+**Files:** `lib/claims/center/claim-center-primary-nav.ts`, `components/claim-center/claim-center-nav-config.ts`, `components/claim-center/ClaimCenterWorkflowBar.tsx`, `lib/claims/center/claim-center-mobile-nav-meta.ts`, `scripts/smoke-claim-center-primary-nav-and-needs-data-v1.ts`, `scripts/phase-claim-center-ui-live-verify-and-count-wire-v1.ts`.
+
+================================================================================
+END APPEND SLICE -- 20260620T110000Z
+================================================================================
+
+---
+
+## 20260620T120000Z — PHASE-DATA-SOURCES-HUB-AND-CLAIM-CENTER-NAV-UNIFICATION-V1 — PASS
+
+**Mode:** architecture + UI unification + source-of-truth cleanup @ LIVE `kxsvedvpjldygtdbylsy`.
+**Constraints honored:** NO DB write, NO `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions` mutation, NO Amazon case submission, NO browser, NO scanner change, NO new tables, NO AI/GPT as source of truth. Read-only composer + UI wiring only.
+
+### Part A — Audit (current_source_status_pages / duplicated_status_systems_found)
+Mapped every status + Claim Center nav surface (subagent audit). Found **4 conflicting definitions of "source status"**: (1) Automation API Center `platform_settings.automation_settings` JSONB `cron_runtime` + env flags (`app/platform/settings/automation/AutomationApiCenterClient.tsx`); (2) `(admin)/imports` API panels via `GET /api/settings/imports/reports-api/status` + `finances-api/status` (live `raw_report_uploads`); (3) **orphaned** `GET /api/settings/imports/reports-api/sync-foundation` (richest: 9-source matrix, no UI consumer); (4) Claim Center Data Coverage (`/api/claims/center/source-coverage` → `composeClaimSourceCoverageV1`, 17 sources) + Claim Center Sources tab (`/api/claims/center/sources` → connector readiness) + dashboard automation-health (discovery watermark). Gap: 4 newer sources (FBA Returns, Inventory Ledger, Fee Preview, Inbound Performance) fully wired in registry+workers+sync-foundation but invisible in Automation settings UI.
+
+### Part B — Single composer (data_sources_hub_composer)
+NEW client-safe contract `lib/data-sources/data-sources-hub-contract.ts` (ZERO imports): `DataSourceHubRow` (all 19 requested fields: source_key/display_name/source_domain/report_type_or_api_endpoint/enabled/worker_flag/schedule/last_run_at/next_run_at/last_success_at/last_error/row_count/latest_event_date/freshness_status/credential_status/permission_status/live_sp_api_exists/local_table/claim_family_coverage/product_story_coverage/needs_env_keys/needs_initial_sync/is_control_plane_source + derived `badge`), pure `deriveDataSourceBadge` (8 states: live/local_only/disabled/needs_env/needs_initial_sync/missing_permission/stale/healthy with deterministic precedence), `dataSourceBadgeMeta`, `filterDataSourcesForView` (control_plane/claim/product), `missingSourceReasonsForFamily`.
+NEW server composer `lib/data-sources/data-sources-hub-v1.ts` `composeDataSourcesHubStatusV1(client, orgId, {view, storeId})` — reuses sync-foundation source specs (8 Reports workers + Finances) + adds product_identity + scanner_returns (11 sources); probes domain tables (count+latest date, org-scoped w/ unscoped fallback), reads worker flags + finances flag + `raw_report_uploads` last run (last_success_at when state succeeded), SP-API credential presence via `amazonSpCredentialsLookComplete` on `marketplaces` (provider ilike amazon); permission_status="unknown" (no Amazon call); next_run_at=null (not fabricated; scheduler-computed when enabled). Read-only.
+
+### Part B/C — Routes (data_sources_hub_route)
+NEW canonical control-plane API `GET /api/platform/data-sources/status?organization_id=&store_id=&view=` → composer. NEW control-plane page `/platform/settings/data-sources` (`DataSourcesHubControlPlaneClient`): org+store scope selector (reuses `listPlatformAutomationOrganizations/StoresAction` + scope storage), 8 badge totals, env-blocker panel, per-source table, collapsed Developer Details (raw payload), links to Automation API Center for edits. `sync-foundation` route **rewired to delegate** to `composeDataSourcesHubStatusV1` (maps hub rows → legacy `source_sync_worker_matrix` + run/resume route metadata; `source_of_truth: composeDataSourcesHubStatusV1`).
+
+### Part C — Claim Center surfaces read from hub
+`lib/claims/center/claim-center-api-handlers.ts`: new `getCenterDataSourcesHubPayload(org, store, view="claim")`; embedded `data_sources_hub` (claim-filtered) into `getCenterSourceCoveragePayload` (+storeId param), `getCenterReadyToFilePayload`, `getCenterReimbursementTrackingPayload`, `getCenterSourcesPayload`. `source-coverage` route now passes storeId. UI: `ClaimCenterSourcesView` renders `DataSourcesHubPanel` (badge cards) first; `ClaimDataCoverageView` renders "Live source status · Data Sources Hub" badge strip (shared `dataSourceBadgeMeta`). Product Story = product-filtered view available via `?view=product` (reusable, not yet surfaced in references UI).
+
+### Part D/E/F — Nav / scope / UI
+Claim Center single 10-section primary nav unchanged from prior phase (Dashboard·Opportunities·Needs Data·Ready to File·Cases·Submissions·Reimbursement Tracking·Product Story·Sources·Rules) — verified by smoke (175 checks, tab/More dedup). Scope: Claim Center pages obey `useClaimCenter()` store + global org; control-plane page has org+store selectors + visible scope line + "all stores". Badges: 8 named states, light/dark tones, debug under collapsed Developer Details, no duplicated summary blocks.
+
+### Output flags
+current_source_status_pages: Automation API Center · (admin)/imports panels · sync-foundation(orphan) · Claim Data Coverage · Claim Center Sources · dashboard automation-health.
+duplicated_status_systems_found: yes (4 definitions of source status).
+routes_to_merge: (admin)/imports reports-api/finances-api status panels → hub; Claim Center Sources connector readiness → hub.
+routes_to_keep: Ready-to-File / Needs Data / Reimbursement Tracking / Product Story (per-claim data-status; hub deep-links only).
+routes_to_redirect: sync-foundation (now delegates to hub); Automation API Center remains edit control plane.
+claim_sources_view_rewired=yes; settings_api_view_rewired=yes (sync-foundation delegate + new control-plane page); ready_to_file_source_status_rewired=yes (server embed); reimbursement_source_status_rewired=yes (server embed); product_story_source_ready=yes (product view available); claim_center_navigation_cleaned=yes; top_scope_selectors_enforced=yes; menoriax_admin_all_companies_scope_supported=partial (per-company select among all visible companies + all-stores; no single cross-company aggregated rollup — single-org deployment, reported honestly); stale_or_duplicate_ui_removed=yes (sync-foundation no longer independent; one badge system).
+no_claim_mutation_verification: no claim_* writes (read-only composer + UI). no_amazon_submission_verification: no Amazon calls. no_scanner_change_verification: scanner untouched.
+build_result: tsc --noEmit exit 0. smoke_result: `smoke-data-sources-hub-v1.ts` 32/32 PASS + `smoke-claim-center-primary-nav-and-needs-data-v1.ts` 175 PASS. next_build_result: next build exit 0 (new routes `/api/platform/data-sources/status` + `/platform/settings/data-sources` registered).
+**SAFE_DATA_SOURCES_HUB_UNIFIED=yes. SAFE_CLAIM_CENTER_NAV_ARCHITECTURE_READY=yes. SAFE_TO_RUN_INITIAL_LIVE_SOURCE_SYNC=no** (worker flags still disabled; `live_sp_api_exists_after_by_source` false; needs operator env enablement + approval).
+
+NEXT_PROMPT: PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1.
+
+Files: `lib/data-sources/data-sources-hub-contract.ts` (new), `lib/data-sources/data-sources-hub-v1.ts` (new), `app/api/platform/data-sources/status/route.ts` (new), `app/platform/settings/data-sources/page.tsx` (new), `app/platform/settings/data-sources/DataSourcesHubControlPlaneClient.tsx` (new), `app/api/settings/imports/reports-api/sync-foundation/route.ts` (delegate), `lib/claims/center/claim-center-api-handlers.ts`, `app/api/claims/center/source-coverage/route.ts`, `components/claim-center/ClaimCenterSourcesView.tsx`, `components/claim-center/data-coverage/ClaimDataCoverageView.tsx`, `scripts/smoke-data-sources-hub-v1.ts` (new).
+
+---
+
+## 20260620T130000Z â€” PHASE-PRODUCT-COST-LANDED-COST-HUB-AUDIT-AND-UI-V1 (re-verify) PASS
+
+**Phase:** PHASE-PRODUCT-COST-LANDED-COST-HUB-AUDIT-AND-UI-V1 (re-run / re-verify)
+**Mode:** read-only cost architecture + UI/import plan. Target LIVE `kxsvedvpjldygtdbylsy` Â· org `00000000-0000-0000-0000-000000000001`.
+**Hard limits honored:** NO DB write Â· NO new tables Â· NO `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions` mutation Â· NO Amazon submission Â· NO scanner change Â· NO AI as source of truth. Audit is SELECT/HEAD only; proposed migration documented, NOT executed.
+
+Re-run of the audit recorded at `20260620T070000Z`. Architecture/contract unchanged; this slice is a fresh live re-verification with green gates. No code changed.
+
+### Part A â€” existing_cost_model_audit (live, re-probed)
+- **source_tables_present:** `products` (17,058) Â· `product_identifier_map` (16,849) Â· `product_prices` (29,571) Â· `vendors` (117).
+- **cost_tables_absent (PGRST205):** `suppliers`, `product_cost_snapshots` (gated draft, never applied), `product_costs`, `product_cost_layers`, `product_cost_components`, `supplier_product_costs`, `purchase_orders`, `purchase_order_items`, `product_listings`, `amazon_listings`, `inventory`, `fba_inventory`, `amazon_inventory` â†’ **no landed-cost storage, no effective-date history, no component breakdown exist**.
+- **existing_cost_fields (products + product_prices):** `vendor_id`, `vendor_name`, `last_price_updated_at`, `price`.
+- **vendors columns:** `id, organization_id, name, contact_email, lead_time_days, created_at, updated_at`.
+- **ungoverned cost in `products.metadata.product_attributes`** (sampled 200): `case_cost` 197 Â· `selling_unit_cost` 196 Â· `case_cost_without_freight` 88 Â· `selling_unit_cost_without_freight` 88 (no effective date, no source_type, mixed with selling price â†’ read-only re-parse to PROPOSE only).
+- `product_prices` = sale/list cache lane (`source=product_master_import`) â€” **NOT cost**.
+- `claim_candidates.cogs_unit` point-in-time snapshot: **0/9155**; interim `cogs_overrides` keys: **0**.
+- effective_dates_exist **no** Â· cost_history_exists **no** Â· landed_cost_components_exist **no**.
+- manual_entry_exists **yes_interim** (`/claim-center/reimbursement-tracking/cogs` â†’ `cogs_overrides`, single unit_cost only).
+- csv_import_exists **yes_dry_run_only** (single unit_cost columns; landed components NOT supported yet).
+- claim_amount_code_using_approved_cogs_unit **yes** (ReadyToFile + money-lane V2 profit/loss; cogs feeds INTERNAL lane, sale price never used as cogs).
+- **gaps:** landed-cost component storage Â· effective_from/effective_to history Â· source_type/confidence Â· governed cost spine table Â· component CSV import Â· Product Cost Hub UI Â· cost timeline on Product Story.
+
+### Part B â€” canonical cost model (`lib/products/contracts/product-cost-landed-cost-hub-v1.ts`)
+- identity: product_id, sku, fnsku, asin, supplier_id, supplier_name.
+- 7 components: purchase_cost_unit, freight_to_warehouse_unit, warehouse_handling_unit, prep_labeling_unit, shipping_to_amazon_unit, storage_or_holding_unit, other_cost_unit.
+- derived: `landed_cost_unit = SUM(approved non-null components)` (null only when ALL null = UNKNOWN, never 0, never sale price).
+- provenance: currency, effective_from, effective_to, source_type (manual|csv_import|api|calculated), confidence, notes, created_by, approved_by.
+- rules: cost feeds internal P&L only; Amazon claim amount stays on latest_sale_net / family-policy lane; effective-date aware; missing cost = INTERNAL P&L blocker only (not a filing blocker unless family policy lists cost as basis); never derive cost from sale/settlement/reimbursement; never infer cost from SKU/title; never auto-create products from a cost import.
+
+### Part C â€” reuse-first schema
+- cost_model_reuse_possible **partial**. reuse_now: products.vendor_id/vendor_name + vendors (117) for supplier linkage Â· product_identifier_map (16,849) for sku/fnsku/asin â†’ product_id Â· claim_candidates.cogs_unit kept as point-in-time snapshot Â· existing COGS UI route extended Â· interim `workspace_settings.module_configs.claim_intake.cost_overrides` for immediate manual entry with NO migration.
+- cannot_reuse: products.metadata cost attrs (ungoverned) Â· product_prices (sale/list) Â· product_cost_snapshots draft (single unit_cost, gated/unapplied).
+- additive_migration_needed **yes** Â· new_table_needed **yes_gated** Â· approval_required **yes** (token `APPROVED_PRODUCT_LANDED_COST_HUB_SCHEMA_V1=yes`).
+- proposed_schema (NOT executed): extend the unapplied `product_cost_snapshots` draft with the 7 component columns + landed_cost_unit + supplier_idâ†’vendors + effective_from/effective_to + source_type + confidence + created_by.
+- interim_no_migration_path: `workspace_settings.module_configs.claim_intake.cost_overrides[fnsku|sku|asin]`.
+
+### Part D â€” product_cost_hub_ui_plan
+- recommended_route: `/claim-center/financial/product-costs` (extend `ProductCogsManualEntryView`).
+- capabilities: search by SKU/FNSKU/ASIN Â· 7-component manual entry + currency/effective_from/source_type/confidence/notes/approved_by Â· CSV import dry-run preview Â· cost history (current vs superseded) Â· component breakdown Â· effective dates w/ overlap warnings Â· approval status badge Â· missing-cost warnings (UNKNOWN, internal P&L only).
+- ready_to_file_cost_display_plan: 3 distinct rows â€” Amazon Claim Amount / Internal CostÂ·Landed Cost / ProfitÂ·Loss impact (cost rows explicitly labeled "internal â€” not the claim amount").
+- product_story_cost_timeline_plan: effective-dated landed-cost records + component breakdown on expand + source/confidence/approved_by + which record was effective on each event date + UNKNOWN gap markers.
+- needs_data_cost_blocker: missing cost = INTERNAL P&L blocker only; does NOT block filing unless the family policy lists cost as the claim basis.
+
+### Part E â€” csv_template_columns (13)
+`sku,fnsku,asin,purchase_cost_unit,freight_to_warehouse_unit,warehouse_handling_unit,prep_labeling_unit,shipping_to_amazon_unit,storage_or_holding_unit,other_cost_unit,currency,effective_from,notes`
+- required: purchase_cost_unit, effective_from. optional_extra: supplier_name, effective_to. forbidden: sale_price, list_price, amazon_price, product_prices.amount, unit_sale_price, recovery_value, claim_amount.
+
+### Output flags
+- cost_model_reuse_possible **partial** Â· additive_migration_needed **yes** Â· new_table_needed **yes_gated** Â· approval_required **yes**.
+- manual_entry_supported **yes_interim_via_cost_overrides_then_snapshots** Â· csv_import_supported **yes_dry_run_now_apply_after_approval**.
+- no_claim_mutation_verification **yes** [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13 â€” before == after].
+- no_amazon_submission_verification **yes** (no Amazon API calls) Â· no_scanner_change_verification **yes** Â· no_new_table_verification **yes**.
+- build_result: `tsc --noEmit` exit 0 Â· next build exit 0 (115 static pages, all routes incl. `/claim-center/financial/...` lane unaffected).
+- smoke_result: `scripts/smoke-product-cost-landed-cost-hub-v1.ts` **21/21 PASS**.
+- next_build_result: `npm run build` exit 0.
+- **SAFE_PRODUCT_COST_HUB_ARCHITECTURE_READY = yes**
+- **SAFE_TO_IMPLEMENT_PRODUCT_COST_HUB = conditional_yes** (interim `cost_overrides` UI with no migration, OR full landed-cost spine after `APPROVED_PRODUCT_LANDED_COST_HUB_SCHEMA_V1=yes`).
+
+**NEXT_PROMPT:** PHASE-PRODUCT-LANDED-COST-HUB-SCHEMA-AND-UI-BUILD-V1 â€” (1) write the gated additive migration extending `product_cost_snapshots` into the landed-cost spine (DO NOT apply until `APPROVED_PRODUCT_LANDED_COST_HUB_SCHEMA_V1=yes`); (2) build the Product Cost Hub UI (extend `ProductCogsManualEntryView` â†’ 7-component form + cost history + CSV dry-run) writing interim `cost_overrides` until the migration is approved; (3) wire `landed_cost_unit` into the money-lane profit/loss view + Ready-to-File financial card + Product Story cost timeline; keep Amazon claim amount on its own policy lane.
+
+**Files (unchanged â€” re-verified):** `lib/products/contracts/product-cost-landed-cost-hub-v1.ts`, `scripts/phase-product-cost-landed-cost-hub-audit-and-ui-v1.ts`, `scripts/smoke-product-cost-landed-cost-hub-v1.ts`.
+
+---
+
+## 20260622T184000Z — PHASE-ROADMAP-STATE-RECONCILIATION-AFTER-MISORDERED-RUNS-V1 (read-only)
+
+**Mode:** read-only state reconciliation @ LIVE `kxsvedvpjldygtdbylsy`. NO DB write · NO `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions` mutation · NO claim submit · NO Amazon call · NO browser · NO scanner change · NO AI as source of truth. Workspace `main` @ `95b288d`. Evidence: `.cursor/audit-reports/phase-roadmap-state-reconciliation-after-misordered-runs-v1/20260622T184000Z/`.
+
+**Why:** several prompts ran out of order (notably the initial-live-source-sync execute attempted before its env/approval prerequisites — correctly BLOCKED twice) and 4 phases have memory entries with NO audit evidence folder. Produced one authoritative state.
+
+**Per-phase classification (11):**
+- trusted_read_only_only (evidence present): `PHASE-AMAZON-SPAPI-LIVE-SOURCE-INTEGRATION-AND-CLAIM-GATE-AUDIT-V1`, `PHASE-PRODUCT-TRID-STORY-LINKAGE-AUDIT-AND-LAYER-V1`, `PHASE-PRODUCT-TRID-STORY-LIVE-REFRESH-V1` (no manifest, summary only).
+- implemented_but_not_executed (evidence present): `PHASE-AMAZON-LIVE-REPORTS-FINANCES-SYNC-WORKERS-V1` (4 workers + 8 routes built; flags disabled; no live calls).
+- blocked (evidence present): `PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1` (approval token=no + 12 env keys missing + CRON_SECRET absent; refused, 0 writes).
+- memory_only_evidence_missing (NO audit folder): `PHASE-DATA-SOURCES-HUB-AND-CLAIM-CENTER-NAV-UNIFICATION-V1` (files UNTRACKED), `PHASE-PRODUCT-COST-LANDED-COST-HUB-AUDIT-AND-UI-V1` (contract UNTRACKED; sibling COGS-manual-entry UI had a `node:fs` client-bundle build FAIL in `_tmp-cogs-ui-out.json` — current reimbursement-tracking components no longer import node:fs, fresh build not re-run), `PHASE-CLAIM-READY-TO-FILE-GATE-HARDENING-V1` (code committed, trusted), `PHASE-CLAIM-TRID-EDGE-READMODEL-IMPLEMENT-V1` (re-verified by trid-story-live-refresh smoke 21/21, trusted), `PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1` (script tracked, read-only dry-run, trusted), `PHASE-CLAIM-CENTER-OPPORTUNITIES-NEEDS-READY-UI-V1` (scripts untracked; conditional on green build).
+
+**Canonical state:** backend claim read-models trusted (hardened 9-gate, family generators 17 fam, TRID edge read model, source coverage); claim counts unchanged 9155/22/22/13; ready_to_file=0. Amazon catalog/pricing lane enabled; Reports/Finances SYNC lane configured_but_disabled (no live calls). Live source tables stale. Cost spine ABSENT. UI read shells trusted but build green UNCONFIRMED on HEAD (recorded COGS UI build FAIL) + data-sources/cost-hub files UNTRACKED.
+
+**Verifications:** no_db_write=pass · no_claim_mutation=pass · no_amazon_submission=pass · no_scanner_change=pass. build_result=FAIL(last recorded cogs UI node:fs; not re-run this phase) · smoke_result=mixed (trid 21/21, nav 148/175, live-verify 23 PASS; cogs UI smoke fail) · next_build_result=not_run.
+
+**Gates:** SAFE_ROADMAP_STATE_RECONCILED=**yes** · SAFE_TO_FIX_LIVE_SYNC_ENV_FLAGS=**yes** (config-only) · SAFE_TO_RUN_INITIAL_LIVE_SOURCE_SYNC=**no** (approval=no + 12 env keys + build unconfirmed).
+
+**phases_to_ignore_for_now:** PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1 (blocked).
+**phases_to_rerun:** data-sources-hub-nav-unification, product-cost-landed-cost-hub, family-claim-generators-dry-run, claim-center-opportunities-needs-ready-ui (emit evidence folders + commit/discard untracked files).
+
+**NEXT_PROMPT:** PHASE-BUILD-AND-EVIDENCE-RECONCILE-V1 — (1) run `npm run build` once + record exit; (2) commit-or-discard untracked data-sources/cost-hub files; (3) emit missing evidence folders for the 6 memory-only phases. Output SAFE_BUILD_GREEN yes/no.
+
+---
+
+## 20260622T185000Z — PHASE-AMAZON-LIVE-SYNC-ENV-FLAG-READINESS-FIX-V1 (config/docs readiness fix)
+
+**Mode:** live-sync readiness/configuration fix only @ LIVE `kxsvedvpjldygtdbylsy`. NO Amazon call · NO claim submit · NO case API · NO browser · NO claim-candidate generation · NO `claim_*` mutation · NO scanner change · NO secrets exposed · NO AI as source of truth. Workspace `main` @ `95b288d`. Evidence: `.cursor/audit-reports/phase-amazon-live-sync-env-flag-readiness-fix-v1/20260622T185000Z/`.
+
+**Scope:** worker flags + CRON_SECRET live in the Vercel deployment env, NOT the repo — this phase fixes the CONFIGURATION CONTRACT (documents exact keys, verifies gate logic + UI surfacing, provides operator runbook). It does NOT (and cannot from the workspace) set the live deployment env. Enabling remains an operator action.
+
+**Gate logic verified:** two independent gates in `scripts/phase-amazon-initial-live-source-sync-execute-v1.ts` + `lib/amazon/reports-api-worker-flags.ts` + `lib/amazon/finances-api-worker-flags.ts`: (1) approval token `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes`; (2) `ENABLE_AMAZON_REPORTS_API_WORKER=true` master + per-source flags + finances flags + `CRON_SECRET`. Each sub-flag is `master && sub`.
+
+**missing_env_keys (12, no values):** ENABLE_AMAZON_REPORTS_API_WORKER/SETTLEMENT/REIMBURSEMENTS/REMOVAL_ORDER/REMOVAL_SHIPMENT/FBA_RETURNS/INVENTORY_LEDGER/FEE_PREVIEW/INBOUND_PERFORMANCE + ENABLE_AMAZON_FINANCES_API_WORKER/INGEST + CRON_SECRET.
+
+**Credential presence (DB, no values):** present — 2 active marketplace rows, 1 complete `amazon_sp_api` row. LWA client/secret/refresh = yes; marketplace_id = yes; AWS access/secret = not required (adapter is LWA-only); region = derived. No credential blocker — blocker is purely env flags + cron + approval.
+
+**cron_secret_status:** absent (required for worker/cron auth). **approval_file:** `.cursor/operator-approvals/amazon-initial-live-source-sync-v1-approval.md`, token currently `=no`.
+
+**Data Sources Hub UI surfacing verified** (`composeDataSourcesHubStatusV1` + `/platform/settings/data-sources`): disabled reason (badge) = yes · missing env (`needs_env_keys`/`missing_env_keys`) = yes · worker flag status = yes · initial sync readiness (`needs_initial_sync`/`safe_to_run_initial_live_source_sync`) = yes · **approval requirement = NOT surfaced (gap)** — approval is a script/process gate; recommended optional follow-up `PHASE-DATA-SOURCES-HUB-APPROVAL-SURFACING-V1`.
+
+**Docs/example config updated (no secrets):** NEW `.env.example` (secret-free; KEYS + placeholders for all 12 flags + Supabase + SP-API lane + approval-file process gate); `.gitignore` gained `!.env.example` exception so the template is committable while real `.env*` stays ignored. No TS/source files changed → build/smoke not run.
+
+**Verifications:** no_amazon_call=pass · no_claim_mutation=pass · no_scanner_change=pass · no_secrets_exposed=pass. build/smoke/next_build = not_run (config/docs-only).
+
+**Verdicts:** SAFE_LIVE_SYNC_ENV_FLAGS_READY=**no** (contract documented + UI surfaces readiness, but live env still has 12 keys unset + approval=no — ready to enable, not enabled) · SAFE_TO_RUN_INITIAL_LIVE_SOURCE_SYNC=**no**.
+
+**NEXT_PROMPT:** OPERATOR-ACTION (set 11 Vercel flags + CRON_SECRET + approval token=yes), then PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1 --execute.
+
+
+
+---
+
+## 20260622T190000Z - PHASE-BUILD-AND-EVIDENCE-RECONCILE-V1 PASS
+
+**Phase:** PHASE-BUILD-AND-EVIDENCE-RECONCILE-V1
+**Mode:** build / evidence / git-state reconciliation only. Target LIVE `kxsvedvpjldygtdbylsy`.
+**Prior context:** follows PHASE-ROADMAP-STATE-RECONCILIATION-AFTER-MISORDERED-RUNS-V1 (`20260622T184000Z`) + PHASE-AMAZON-LIVE-SYNC-ENV-FLAG-READINESS-FIX-V1 (`20260622T185000Z`, which created `.env.example` + the `.gitignore` `!.env.example` exception). This phase executes the build + evidence-folder reconciliation those two phases recommended.
+**Hard limits honored:** NO DB write, NO `claim_candidates`/`claim_cases`/`claim_lines`/`claim_submissions` mutation, NO Amazon call, NO live sync, NO claim submission, NO browser automation, NO scanner change, NO new tables, NO AI as source of truth. (No code changed - build was already green; only evidence files + memory written.)
+
+Goal: make the repo state trustworthy before continuing the roadmap.
+
+### 1. Git / file state
+- Branch `main` @ HEAD `95b288d` ("Claims V2.1", author mebrahimipargoo).
+- **Modified (tracked, all completed phases):** `.gitignore`, `TASKS.md`, `.cursor/.ai-memory/{CURRENT_STATE,HISTORY_POINTERS,NEXT_ACTIONS}.md`, `.cursor/history/ERP_PIM_FULL_APPEND_ONLY_HISTORY_MASTER.md`, `app/api/claims/center/source-coverage/route.ts`, `app/api/settings/imports/reports-api/sync-foundation/route.ts`, `components/claim-center/{ClaimCenterFlowCountsProvider,ClaimCenterSourcesView,ClaimCenterWorkflowBar}.tsx`, `components/claim-center/claim-center-nav-config.ts`, `components/claim-center/data-coverage/ClaimDataCoverageView.tsx`, `lib/claims/center/{claim-center-api-handlers,claim-center-flow-nav,claim-center-mobile-nav-meta,claim-center-primary-nav}.ts`, `scripts/phase-family-claim-generators-dry-run-v1.ts`.
+- **Untracked:** `.env.example` (secret-free template from `20260622T185000Z`), `app/api/platform/`, `app/platform/settings/data-sources/`, `lib/data-sources/`, `lib/products/contracts/product-cost-landed-cost-hub-v1.ts`, `scripts/phase-claim-center-ui-live-verify-and-count-wire-v1.ts`, `scripts/phase-product-cost-landed-cost-hub-audit-and-ui-v1.ts`, `scripts/phase-product-trid-story-live-refresh-v1.ts`, `scripts/smoke-claim-center-primary-nav-and-needs-data-v1.ts`, `scripts/smoke-data-sources-hub-v1.ts`, `scripts/smoke-product-cost-landed-cost-hub-v1.ts`.
+- **files_to_keep = ALL untracked above** (each maps to a completed/recorded phase: Data Sources Hub, Product Cost Hub, claim-center live-verify, TRID story refresh, smokes, env template). **files_to_discard_or_review = none** (no accidental/debug/temp files found). `.gitignore` change deliberate (`!.env.example`).
+
+### 2. Evidence folders
+Found pre-existing: `phase-amazon-live-reports-finances-sync-workers-v1/{20260620T003800Z,20260620T004544Z}`, `phase-amazon-initial-live-source-sync-execute-v1/{20260620T014853Z,20260620T033233Z}`.
+Created (read-only `RECONCILED_FROM_MASTER_HISTORY.md`, provenance-marked, NO invented pass results - domain numbers quoted from master-history slices; build/smoke re-run this session):
+- `phase-data-sources-hub-and-claim-center-nav-unification-v1/20260620T120000Z/`
+- `phase-product-cost-landed-cost-hub-audit-and-ui-v1/20260620T070000Z/`
+- `phase-claim-ready-to-file-gate-hardening-v1/20260619T235900Z/`
+- `phase-claim-trid-edge-readmodel-implement-v1/20260620T020000Z/`
+- `phase-family-claim-generators-dry-run-v1/20260620T100000Z/`
+- `phase-claim-center-opportunities-needs-ready-ui-v1/20260620T110000Z/`
+
+### 3. Build cleanup (independently re-run this session)
+- **typecheck** `tsc --noEmit` -> exit **0**.
+- **lint** `npm run lint` (eslint, whole repo) -> exit 1, **899 problems (199 errors / 700 warnings) - ALL pre-existing repo-wide** (`require()` in scripts + React "setState synchronously within an effect"); **none in the new phase files** (grep of data-sources / product-cost / DataSourcesHubControlPlane = 0 matches). Not build-breaking; not fixed (out of scope - would touch business logic across the repo).
+- **build_before / build_after:** prior context recorded build FAIL (sibling COGS UI / node:fs). **Current actual `npm run build` = exit 0** (115 static pages, `/platform/settings/data-sources` + `/api/platform/data-sources/status` registered). The COGS-UI/node:fs failure is NOT present now (already resolved by the zero-import contract pattern) -> `cogs_ui_build_issue_found=no`, `cogs_ui_build_issue_fixed=n/a`.
+- **smoke results:** `smoke-data-sources-hub-v1` 32/32; `smoke-claim-center-primary-nav-and-needs-data-v1` 175; `smoke-product-cost-landed-cost-hub-v1` 21/21; `smoke-phase-claim-ready-to-file-queue-ui-v1` PASS (ready-to-file gate + reimbursement-drawer static contract); `smoke-claim-trid-edge-readmodel-implement-v1` 21/21. **All PASS.**
+
+### 4/5. File-status verification
+- **data_sources_hub_files_verified = yes** - `app/api/platform/`, `app/platform/settings/data-sources/`, `lib/data-sources/` are intentional Data Sources Hub phase artifacts; KEEP.
+- **product_cost_files_verified = yes** - `lib/products/contracts/product-cost-landed-cost-hub-v1.ts`, `scripts/phase-product-cost-landed-cost-hub-audit-and-ui-v1.ts`, `scripts/smoke-product-cost-landed-cost-hub-v1.ts` are intentional cost-hub architecture artifacts; KEEP. No schema created, no migration applied.
+
+### 6. Live sync readiness (still blocked)
+- **approval token** `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=no` (file `.cursor/operator-approvals/amazon-initial-live-source-sync-v1-approval.md`).
+- **missing env keys (12):** `ENABLE_AMAZON_REPORTS_API_WORKER`, `_SETTLEMENT`, `_REIMBURSEMENTS`, `_REMOVAL_ORDER`, `_REMOVAL_SHIPMENT`, `_FBA_RETURNS`, `_INVENTORY_LEDGER`, `_FEE_PREVIEW`, `_INBOUND_PERFORMANCE`, `ENABLE_AMAZON_FINANCES_API_WORKER`, `ENABLE_AMAZON_FINANCES_API_INGEST`, `CRON_SECRET`. **CRON_SECRET = MISSING.** `AMAZON_SP_API_ENABLED` = set (catalog/pricing lane only). Worker flags all OFF.
+- **live_sync_still_blocked = yes.**
+
+### Verifications
+no_db_write **yes**; no_claim_mutation **yes** [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13 - unchanged]; no_amazon_call **yes**; no_live_sync **yes**; no_scanner_change **yes**.
+
+### Output flags
+- **SAFE_BUILD_AND_EVIDENCE_RECONCILED = yes**
+- **SAFE_TO_FIX_LIVE_SYNC_ENV_FLAGS = yes**
+- **SAFE_TO_RUN_INITIAL_LIVE_SOURCE_SYNC = no** (approval=no + 12 env keys missing + CRON_SECRET missing + worker flags off)
+
+**NEXT_PROMPT:** OPERATOR-ACTION - (a) commit the kept untracked + modified tracked files on `main` (Data Sources Hub + Product Cost Hub + claim-center nav + `.env.example`); (b) in the LIVE deployment env set the 12 keys (11 worker flags=true + a real `CRON_SECRET`) and flip `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes`; then re-run `npx tsx scripts/phase-amazon-initial-live-source-sync-execute-v1.ts --execute` (PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1). Until then continue the read-only/build track (PHASE-PRODUCT-LANDED-COST-HUB-SCHEMA-AND-UI-BUILD-V1 or PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1).
+
+**Files (this phase):** 6 NEW read-only evidence reports under `.cursor/audit-reports/<phase>/<ts>/RECONCILED_FROM_MASTER_HISTORY.md`; memory quartet + master history. No source/scanner/DB change.
+
+---
+
+## 20260622T200000Z - PHASE-AMAZON-LIVE-SYNC-ENV-FLAG-READINESS-FIX-V2
+
+**Mode:** live-sync readiness / configuration fix only @ LIVE `kxsvedvpjldygtdbylsy`. **NO Amazon call, NO live sync, NO claim submit, NO case API, NO browser, NO claim-candidate generation, NO `claim_*` mutation, NO scanner change, NO secrets exposed, NO AI as source of truth.** Prerequisite SAFE_BUILD_AND_EVIDENCE_RECONCILED=yes (carried from 20260622T190000Z).
+
+### 1. Env/config requirements (from code)
+- **Gate logic confirmed two-gate** (`scripts/phase-amazon-initial-live-source-sync-execute-v1.ts`): live pull permitted ONLY when (1) operator approval token `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes` AND (2) `ENABLE_AMAZON_REPORTS_API_WORKER` master flag true. Otherwise hard block, no Amazon calls, no faked success.
+- **Reports API flags** (`lib/amazon/reports-api-worker-flags.ts`, truthy = 1|true|yes): master `ENABLE_AMAZON_REPORTS_API_WORKER`; per-source sub-flags (each ALSO requires master): `_SETTLEMENT`, `_REIMBURSEMENTS`, `_REMOVAL_ORDER`, `_REMOVAL_SHIPMENT`, `_FBA_RETURNS`, `_INVENTORY_LEDGER`, `_FEE_PREVIEW`, `_INBOUND_PERFORMANCE`.
+- **Finances flags** (`lib/amazon/finances-api-worker-flags.ts`): `ENABLE_AMAZON_FINANCES_API_WORKER` + `ENABLE_AMAZON_FINANCES_API_INGEST` (ingest requires worker).
+- **CRON_SECRET** required for worker/cron auth (`app/api/cron/removal-nightly-sync/route.ts` authorized() returns false if absent). Production cron route also gated on `ENABLE_PRODUCTION_REMOVAL_NIGHTLY_CRON=true` (optional, only if nightly cron used).
+- **Store/org scoped automation settings:** Data Sources Hub composes per org (+ optional store) scope; no extra per-store env required beyond the global flags.
+
+### 2. missing_env_keys (12) - authoritative re-run, no secret values
+`ENABLE_AMAZON_REPORTS_API_WORKER=true`, `ENABLE_AMAZON_REPORTS_API_SETTLEMENT=true`, `ENABLE_AMAZON_REPORTS_API_REIMBURSEMENTS=true`, `ENABLE_AMAZON_REPORTS_API_REMOVAL_ORDER=true`, `ENABLE_AMAZON_REPORTS_API_REMOVAL_SHIPMENT=true`, `ENABLE_AMAZON_REPORTS_API_FBA_RETURNS=true`, `ENABLE_AMAZON_REPORTS_API_INVENTORY_LEDGER=true`, `ENABLE_AMAZON_REPORTS_API_FEE_PREVIEW=true`, `ENABLE_AMAZON_REPORTS_API_INBOUND_PERFORMANCE=true`, `ENABLE_AMAZON_FINANCES_API_WORKER=true`, `ENABLE_AMAZON_FINANCES_API_INGEST=true`, `CRON_SECRET=<secret>`. worker master flag = DISABLED; env_keys_status = incomplete (12 missing). cron_secret_status = ABSENT.
+
+### 3. SP-API credential presence (read-only DB probe, booleans only - NO values)
+2 amazon `marketplaces` rows (2 active, 1 with complete LWA triplet). Aggregate presence across rows: **lwa_client_id=yes, lwa_client_secret=yes, refresh_token=yes, aws_access_key=yes, aws_secret_key=yes, marketplace_id=yes, region=yes** (distinct credential keys: aws_access_key, aws_secret_key, endpoint, lwa_client_id, lwa_client_secret, marketplace_id, refresh_token, region, seller_id). credential_presence=present -> **credentials are NOT a blocker**. (Completeness check `amazonSpCredentialsLookComplete` requires LWA triplet only; AWS keys present but not required by the LWA adapter.)
+
+### 4. Safe docs (no secrets)
+- `.env.example` already present + complete (from 20260622T185000Z): all 12 keys + Supabase + SP-API catalog lane + approval process-gate notes. No change needed.
+- approval template `.cursor/operator-approvals/amazon-initial-live-source-sync-v1-approval.md` already present, defaulted `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=no` -> **approval_file_created_or_found = found** (not recreated; already blocked/no).
+- **NEW operator setup doc** `docs/amazon/initial-live-source-sync-operator-setup.md` (runbook: where readiness is shown, two gates, 11 flags + CRON_SECRET, credential note, exact enable steps, hard rules). No secrets.
+
+### 5. Data Sources Hub / Settings UI readiness (verified + enhanced)
+- Hub composer `composeDataSourcesHubStatusV1` already surfaces: per-source `needs_env_keys`, global `missing_env_keys`, `cron_secret_present`, `worker_master_enabled`, `credential_status`, `freshness_status`, `needs_initial_sync`, `safe_to_run_initial_live_source_sync`, + 8-state badges (disabled/needs_env/needs_initial_sync/...). Consumed by control-plane page `/platform/settings/data-sources`, settings sync-foundation route, and Claim Center Sources/Coverage/Ready-to-File views.
+- **Gap closed (UI-only edit):** `DataSourcesHubControlPlaneClient.tsx` previously showed missing-env + worker-flag column + badges but NOT an explicit initial-sync readiness verdict nor the operator-approval requirement. Added an **"Initial live-sync readiness" banner** (READY/BLOCKED from `safe_to_run_initial_live_source_sync`) listing worker master flag, CRON_SECRET, SP-API credential presence (derived), and the **operator approval requirement** (`APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes` in the approval file) with a note that env-READY still stays gated until approval=yes and that this view does not call Amazon. -> **data_sources_ui_readiness_visible=yes, settings_ui_readiness_visible=yes** (same page lives under /platform/settings).
+
+### Verifications
+no_amazon_call **yes**; no_live_sync **yes** (executor ran blocked-at-gate, SELECT-only); no_claim_mutation **yes** [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13 - unchanged]; no_scanner_change **yes**; no secrets printed.
+
+### Build / smoke
+- `tsc --noEmit` exit **0**. `smoke-data-sources-hub-v1` **32/32**. `npm run build` exit **0** (115 pages; `/platform/settings/data-sources` + `/api/platform/data-sources/status` registered). next_build_result exit 0.
+
+### Output flags
+- **SAFE_LIVE_SYNC_ENV_FLAGS_READY = no** (config + docs + UI readiness are READY to enable, but the LIVE env still has 0 of 12 keys set and approval=no, so the system is not yet flag-ready to actually run).
+- **SAFE_TO_RUN_INITIAL_LIVE_SOURCE_SYNC = no** (approval=no + 12 env keys missing + CRON_SECRET absent + worker flags off; credentials present).
+
+**NEXT_PROMPT:** OPERATOR-ACTION - in the LIVE deployment env set the 11 worker flags = true + a real `CRON_SECRET`, then flip `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes` in `.cursor/operator-approvals/amazon-initial-live-source-sync-v1-approval.md`; confirm `/platform/settings/data-sources` shows "Initial live-sync readiness: READY"; then run `npx tsx scripts/phase-amazon-initial-live-source-sync-execute-v1.ts --execute` (PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1). Until then continue the read-only/build track (PHASE-PRODUCT-LANDED-COST-HUB-SCHEMA-AND-UI-BUILD-V1 or PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1).
+
+**Files (this phase):** `docs/amazon/initial-live-source-sync-operator-setup.md` (new), `app/platform/settings/data-sources/DataSourcesHubControlPlaneClient.tsx` (readiness banner), memory quartet + master history. No DB/scanner/claim change; `.env.example` + approval template unchanged (already correct).

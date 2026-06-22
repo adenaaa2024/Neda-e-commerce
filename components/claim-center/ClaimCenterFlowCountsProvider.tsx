@@ -26,6 +26,8 @@ const EMPTY_COUNTS: ClaimCenterFlowCounts = {
   references: 0,
   recovery: 0,
   sources: 0,
+  ready_to_file: 0,
+  filed: 0,
 };
 
 export function useClaimCenterFlowCounts() {
