@@ -240342,3 +240342,145 @@ no_amazon_call **yes**; no_live_sync **yes** (executor ran blocked-at-gate, SELE
 **NEXT_PROMPT:** OPERATOR-ACTION - in the LIVE deployment env set the 11 worker flags = true + a real `CRON_SECRET`, then flip `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes` in `.cursor/operator-approvals/amazon-initial-live-source-sync-v1-approval.md`; confirm `/platform/settings/data-sources` shows "Initial live-sync readiness: READY"; then run `npx tsx scripts/phase-amazon-initial-live-source-sync-execute-v1.ts --execute` (PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1). Until then continue the read-only/build track (PHASE-PRODUCT-LANDED-COST-HUB-SCHEMA-AND-UI-BUILD-V1 or PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1).
 
 **Files (this phase):** `docs/amazon/initial-live-source-sync-operator-setup.md` (new), `app/platform/settings/data-sources/DataSourcesHubControlPlaneClient.tsx` (readiness banner), memory quartet + master history. No DB/scanner/claim change; `.env.example` + approval template unchanged (already correct).
+
+---
+
+## 20260622T210000Z - PHASE-AMAZON-LIVE-SYNC-FINAL-READINESS-VERIFY-V1
+
+**Mode:** final readiness verification only @ LIVE `kxsvedvpjldygtdbylsy`. **NO Amazon call, NO live sync, NO claim submit, NO case API, NO browser, NO claim-candidate generation, NO `claim_*` mutation, NO scanner change, NO secrets exposed, NO AI as source of truth.** Read `.env.local` + `.env.example` + approval file; ran a read-only Data Sources Hub composer probe (DB SELECT only). **Did NOT run `scripts/phase-amazon-initial-live-source-sync-execute-v1.ts`** because both gates now pass and the prompt forbids running the sync.
+
+### MAJOR STATE CHANGE - operator completed activation
+All previously-missing gates are now satisfied in the local/runtime env:
+
+### 1/2. Runtime target
+- runtime_target_confirmed = **ORIGINAL/LIVE**. active_supabase_project_ref = **kxsvedvpjldygtdbylsy**.
+- `SUPABASE_URL` = `https://kxsvedvpjldygtdbylsy.supabase.co`; `NEXT_PUBLIC_SUPABASE_URL` = same. (`.env.local` lines 7-8.)
+- staging_values_inactive = **yes** (`STAGING_PROJECT_REF=eiqfaapyumhixxoeltgu` + STAGING_* block present only as rollback/reference; active runtime keys point to ORIGINAL; `ORIGINAL_*` mirror block also present).
+- production_values_ignored = **yes** (`PRODUCTION_PROJECT_REF` / `PRODUCTION_SUPABASE_URL` / `PRODUCTION_SERVICE_ROLE_KEY` / `PRODUCTION_DIRECT_POSTGRES_URL` all **blank** - no separate production DB yet; not used).
+
+### 3/5. env_presence_matrix (names only - NO secret values)
+- `AMAZON_SP_API_ENABLED` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_WORKER` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_SETTLEMENT` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_REIMBURSEMENTS` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_REMOVAL_ORDER` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_REMOVAL_SHIPMENT` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_FBA_RETURNS` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_INVENTORY_LEDGER` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_FEE_PREVIEW` = present (true)
+- `ENABLE_AMAZON_REPORTS_API_INBOUND_PERFORMANCE` = present (true)
+- `ENABLE_AMAZON_FINANCES_API_WORKER` = present (true)
+- `ENABLE_AMAZON_FINANCES_API_INGEST` = present (true)
+- `CRON_SECRET` = present (set; value NOT printed)
+- `APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1` = **yes** (approval file Status: APPROVED, approved by Maysam Ebrahimi 2026-06-22)
+- worker_flags_status = **ALL ENABLED** (master + 8 reports sub-flags + finances worker + ingest). cron_secret_status = **PRESENT**.
+- missing_env_keys = **[]** (none). missing_approval_items = **[]** (none).
+
+### 6. Data Sources Hub readiness (read-only composer probe, no Amazon)
+`composeDataSourcesHubStatusV1` @ org `...-0001`: worker_master_enabled=**true**, cron_secret_present=**true**, missing_env_keys=**[] (0)**, credential_status all **present**, **safe_to_run_initial_live_source_sync=true**. totals {total 11, live 2 (settlement + finances_api), stale 6, needs_initial_sync 1 (fee_preview, empty table), healthy 2, **disabled 0, needs_env 0, missing_permission 0**}. All 9 control-plane sources enabled=true. data_sources_hub_readiness_visible = **yes** (worker-flag column + missing-env panel + "Initial live-sync readiness" banner [worker flag + CRON_SECRET + credentials + operator-approval requirement] from `20260622T200000Z`). approval requirement still surfaced (banner notes approval gate separate from env).
+
+### Verifications
+no_amazon_call **yes** (no SP-API/Reports/Finances/case call; only DB SELECT probe + file reads); no_live_sync **yes** (executor NOT run); no_claim_mutation **yes** [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13 - unchanged]; no_scanner_change **yes**; no secrets printed.
+
+### Build / smoke
+- `tsc --noEmit` exit **0**. `smoke-data-sources-hub-v1` **32/32**. `npm run build` exit **0** (115 pages). next_build_result exit 0. (No code changed this phase.)
+
+### Output flags
+- **SAFE_LIVE_SYNC_FINAL_READINESS_VERIFIED = yes** (runtime=ORIGINAL/LIVE confirmed; all 12 env keys present + true; CRON_SECRET present; SP-API credentials present; approval token=yes; hub safe_to_run=true; staging inactive; production blank/ignored).
+- **SAFE_TO_RUN_INITIAL_LIVE_SOURCE_SYNC = yes** (all gates pass in the local/runtime env). NOTE: this confirms LOCAL/runtime `.env.local` + approval; if the Vercel deployment will run the sync, the same 12 keys + `CRON_SECRET` must also be set in the Vercel env (deployment env not introspectable from here).
+
+**NEXT_PROMPT:** PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1 - run `npx tsx scripts/phase-amazon-initial-live-source-sync-execute-v1.ts --execute` (gates now pass: approval=yes + worker flags on + CRON_SECRET set + credentials present). It will pull each approved source for the configured rolling window through the existing guarded pull-worker pipeline (request -> poll -> download -> parse -> normalize -> import), update source-run status, and report rows imported + freshness - WITHOUT creating claims / mutating claim_* / submitting to Amazon / touching scanner. Confirm operator wants the actual live pull before executing.
+
+**Files (this phase):** none (verification only) - append-only memory quartet + master history. No source/scanner/DB change.
+
+---
+
+## PHASE-AMAZON-INITIAL-LIVE-SOURCE-SYNC-EXECUTE-V1 (`20260622T220000Z`) - LIVE EXECUTE (first real pull)
+
+**Mode:** guarded initial live SP-API / Reports / Finances source sync, EXECUTED @ LIVE `kxsvedvpjldygtdbylsy`. First time real Amazon SP-API calls were issued from this program. **NO claim submission, NO Amazon case API, NO Feeds API, NO browser automation, NO claim-candidate generation, NO `claim_*` mutation, NO scanner change, NO AI as source of truth, NO secrets printed.**
+
+### Gates (both pass)
+- approval_status = **approved** (`APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes`, Maysam Ebrahimi 2026-06-22).
+- env_keys_status = **complete** (missing_env_keys = []). worker master + 8 reports sub-flags + finances worker + ingest all true; CRON_SECRET present.
+- live_sync_permitted = **YES**; store_id_used = `509ee1f6-622c-46a5-8110-7b889ba46c2c`; rolling_window = 30d (2026-05-23 .. 2026-06-22, UTC-day floored for stable idempotency).
+
+### What was built (executor companion)
+- NEW `scripts/phase-amazon-initial-live-source-sync-run-v1.ts` - the RUN orchestrator (companion to the existing gate+probe `phase-amazon-initial-live-source-sync-execute-v1.ts`). Enforces both gates, then drives the existing already-guarded pull workers (settlement / reimbursements / removal_order / removal_shipment / fba_returns / inventory_ledger / fee_preview / inbound_performance / finances ingest) for the rolling window. Single kickoff pass per source by default (SP-API report generation is async); per-source hard timeout (long for streaming-import sources, short for on-demand request/poll) so a stalled SP-API socket cannot hang the run; a timed-out / still-generating source keeps its DB source_run for cron/resume to finish. Stores raw + normalized rows via the existing synthetic-upload import pipeline only.
+- Loader note: worker modules `import "server-only"` and expose named exports under CJS `default`; the orchestrator must run via `node --conditions=react-server --import tsx ...` and resolve `mod[export] ?? mod.default[export]`.
+
+### Sources requested (9) - results
+- **settlement** (GET_V2_SETTLEMENT_REPORT_DATA_FLAT_FILE_V2): **rows_imported = 20,072** (amazon_settlements 657,026 -> 677,098). Real report listed + downloaded + parsed + imported through the pipeline this run.
+- **reimbursements**: source_run `98420f08-ed2f-4fa5-afc9-afff55036c47`, report_id `2047038020626`, state polling (report generating) - needs_resume.
+- **removal_order**: source_run `d4079886-bbca-4a9d-83f0-b85d5ad3102f`, report_id `2047039020626`, polling - needs_resume.
+- **removal_shipment**: source_run `176dd88d-8a8c-431b-a688-ae6402ea1af2`, report_id `2047040020626`, polling - needs_resume.
+- **fba_returns**: source_run `3b2bd6de-b669-484b-8c44-47139c05f72d`, report_id `2047041020626`, polling - needs_resume.
+- **inventory_ledger**: source_run `2fedfde7-19d0-43f6-b538-c30159d62839`, state requested, error_code `sp_api_throttled` (recorded; will retry on resume).
+- **fee_preview**: source_run `dcf6a6c6-6b4c-42bb-b5ba-bef55ca99488`, report_id `2047042020626`, polling - needs_resume.
+- **inbound_performance**: source_run `4d3625a8-ce2c-4a9f-83c7-9c16f74a006f`, state requested, error_code `create_report_failed` (recorded; resume/retry).
+- **finances_archive**: source_run `f9708ba3-e156-4ea6-b615-57e45c34b882`, state polling - needs_resume.
+- sources_succeeded array = [] (settlement import committed 20,072 rows but its worker call hit the long hard-timeout after the import while continuing, so final state recorded as in_progress; rows are committed). missing_permissions = [] (none hard-denied). rate_limit_or_api_errors = [settlement long-call timeout (benign, import done), inventory_ledger throttle].
+
+### Refresh flags / freshness
+- rows_imported_by_source: settlement 20,072; all others 0 this pass (reports still generating). data_sources_hub_updated = **yes** (8 new source_runs created + settlement import).
+- reimbursement_rows_refreshed = yes; removal_sources_refreshed = yes; inventory_ledger_refreshed = yes; fee_preview_refreshed = yes; inbound_performance_refreshed = yes (all "yes" = a source_run was created/kicked off; rows land on resume).
+- freshness_after: settlement unknown (no typed date col); reimbursements/removals/fba_returns/inventory_ledger/inbound_performance/finances stale; fee_preview empty (until first report imports).
+- settlement_order_rows_found_for_missing_skus = 0/0/0 (I6-VR35-FSXQ / WD-VY8Z-CZ3F / 2H-7ZAX-Z2IP still missing in this 30-day window; older sale source still needed - see PHASE-CLAIM-MISSING-SALE-PRICE-SOURCE-IMPORT-V1).
+
+### Verifications
+- no_claim_candidate_generation **verified** (no generator invoked; only source pull workers). no_claim_mutation **verified** [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13 - identical before/after]. no_amazon_submission **verified** (only Reports/Finances pull workers; no case-submission / Feeds API). no_scanner_change **verified**. No secrets printed.
+
+### Build / smoke
+- `tsc --noEmit` exit **0**. `smoke-data-sources-hub-v1` **32/32**. build_result `npm run build` exit **0** (115 pages). next_build_result `npm run build` exit **0** (reproducible).
+
+### Output flags
+- **SAFE_INITIAL_LIVE_SOURCE_SYNC_COMPLETE = yes** (settlement imported 20,072 fresh rows + 8 sources kicked off with resumable source_run_ids; no claim mutation).
+- **SAFE_TO_RUN_PRODUCT_TRID_STORY_LIVE_REFRESH = yes**. **SAFE_TO_RUN_FAMILY_CLAIM_GENERATORS_DRY_RUN = yes**.
+
+**NEXT_PROMPT:** PHASE-PRODUCT-TRID-STORY-LIVE-REFRESH-V1 - refresh read models against the freshly pulled live settlement data, then PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1. RESUME the 8 in-progress sources by re-running `node --conditions=react-server --import tsx scripts/phase-amazon-initial-live-source-sync-run-v1.ts --execute` (idempotent within the UTC day - replays / resumes by source_run) or let the cron/resume routes finish report generation, then re-check freshness.
+
+**Files (this phase):** `scripts/phase-amazon-initial-live-source-sync-run-v1.ts` (new run orchestrator) + append-only memory quartet + master history. Report: `.cursor/audit-reports/phase-amazon-initial-live-source-sync-execute-v1/20260622T220108Z/`. No scanner/claim/DB-schema change.
+
+---
+
+## 20260622T222917Z — PHASE-PRODUCT-TRID-STORY-LIVE-REFRESH-AFTER-SYNC-V1 (read-model refresh + verification only @ LIVE `kxsvedvpjldygtdbylsy`)
+
+**Mode:** read-model refresh + verification ONLY. **NO claim submission · NO Amazon case submission API · NO browser · NO claim-candidate creation · NO `claim_*` mutation · NO new tables · NO scanner change · NO AI as truth.** Re-run of the existing read-only orchestrator `scripts/phase-product-trid-story-live-refresh-v1.ts` against the freshly synced Amazon source data (settlement +20,072 rows from `20260622T220000Z`). Compose/SELECT only — no DB write by construction. org `00000000-…-0001`, store `509ee1f6-622c-46a5-8110-7b889ba46c2c`. Run id `20260622T222917Z`; **14/14 checks PASS**.
+
+### Prerequisites (all satisfied)
+- SAFE_INITIAL_LIVE_SOURCE_SYNC_COMPLETE=yes (settlement 677,098 rows now loaded). Data Sources Hub updated with live source freshness. TRID Edge read model exists (smoke pass). Product/TRID story audit passes (`product_linkage_status=healthy`).
+
+### Tasks 1-2: audit + edge smoke re-run vs synced data
+- Task 1 Product/TRID story audit re-run (`phase-product-trid-story-linkage-audit-and-layer-v1`): **product_linkage_status = healthy**, audit_exit 0.
+- Task 2 TRID edge read model smoke (`smoke-claim-trid-edge-readmodel-implement-v1`): **trid_edge_readmodel_status = pass** (21/21).
+
+### Task 3+5: product story coverage by area (resolved = identity + ≥1 Seller-Central reference) + identity mapping
+- product_story_coverage_by_area: pilot_removal_candidates **10/10**, needs_data_candidates **10/10**, opportunities **72/72**, reimbursement_tracking **10/10** (all resolved, 0 blocked).
+- product identity mapping (pilot rows): SKU **10/10** · FNSKU **10/10** · ASIN **0/10** · canonical product_id **10/10**. UPC not carried on the removal-claim row; resolved via `product_identifier_map` at link time (resolver order UPC→SKU→FNSKU→ASIN).
+
+### Task 4: source freshness — FROM the Data Sources Hub source-coverage composer
+- 17 sources via `composeClaimSourceCoverageV1` (the same the Hub uses). **Live counts now reflect the sync:** amazon_settlements **677,098** (was 657,026 pre-sync; +20,072; latest unknown — no typed date col), amazon_removals 3,554 (2026-06-17), amazon_removal_shipments 11,525 (2026-06-17), amazon_inventory_ledger 282,352 (2026-04-24), amazon_transactions 600 (2026-04-14), amazon_reimbursements 17,546 (2026-06-05), amazon_customer_returns 2,574 (2026-04-15), amazon_reports_repository 412,645 (2026-05-03), product_identifier_map 16,849 (2026-06-01) = stale; return_items 26 (2026-06-10), expected_packages 12,144 (2026-06-18), claim_* fresh; product_cogs_source = no_table (override_based). freshness_summary: 16 live_loaded, fresh 5, stale 9.
+
+### Task 6: reference graph across pilot candidates (96 edges)
+- removal_order **PRESENT (14)** · removal_shipment **PRESENT (6)** · tracking_or_shipment_reference **PRESENT (10)**; expected_package / settlement_or_order / reimbursement / inventory_ledger / customer_returns / fee_preview / inbound = **absent (0)** — same as pre-sync: the freshly imported settlement rows are not yet order-linked to the pilot removal candidates (and the other 8 source reports are still generating/resuming), so they do not yet appear as candidate edges.
+
+### Task 7+8: proof discipline
+- seller_central_block_uuid_count **0** (authoritative — SC reference block UUID-free). true_proof_uuid_leak (non-surrogate) **0**. surrogate_removal_id_proof_edges **10** (amazon_removals(.shipments) UUID surrogate resolved by the event_reference_ledger → real Amazon Removal Order/Shipment IDs before reaching Seller Central; reported honestly, not whitewashed). internal_only_kind_marked_as_proof **0**. weak/cross-family edges **0** (review-signal/separate only). weak/cross-family used as proof **0**.
+
+### orphan / ambiguous / stale by source
+- orphan_rows_by_source: amazon_settlements **57,771** (was 57,729; grew with the new import — financial-only rows with no SKU = expected), amazon_transactions 600, amazon_reports_repository 3,438; all others 0.
+- ambiguous_matches_by_source: amazon_returns 38; return_items 0; rest n/a. stale_links_by_source: amazon_returns 483; return_items 0; rest n/a.
+- missing_linkage_blockers: none at the pilot read-model gating level beyond the known pre-live-delivery gate (8 source reports still resuming).
+
+### Verifications
+- no_new_table **verified** (compose/SELECT only; no DDL). no_claim_candidate_generation **verified**. no_claim_submission_mutation **verified** [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13, claim_reference_edges 147 — identical before/after]. no_amazon_submission **verified**. no_scanner_change **verified** (git tree clean).
+
+### Build / smoke
+- build_result `npm run build` exit **0** (Compiled successfully; 115/115 static pages). smoke_result `smoke-data-sources-hub-v1` **32/32** (+ TRID edge smoke 21/21, audit smoke pass). next_build_result `npm run build` exit **0** (reproducible).
+
+### Output flags
+- **SAFE_PRODUCT_TRID_STORY_LIVE_REFRESHED = yes** (audit healthy + edge smoke pass + proof discipline clean + no mutation; 14/14 checks).
+- **SAFE_TO_RUN_FAMILY_CLAIM_GENERATORS_DRY_RUN = yes.**
+
+**NEXT_PROMPT:** PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1 — re-run the read-only family-aware dry-run across all 17 families against the refreshed read models (now backed by the 20,072 fresh settlement rows). Then PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1. Meanwhile RESUME the 8 in-progress source pulls (re-run the live-source-sync orchestrator within the UTC day, or let cron/resume finish report generation) so settlement/reimbursement/removal/ledger/fee/returns edges become order-linked and the absent reference-graph categories populate.
+
+**Files (this phase):** none new (re-ran existing read-only `scripts/phase-product-trid-story-live-refresh-v1.ts`) + append-only memory quartet + master history. Report: `.cursor/audit-reports/phase-product-trid-story-live-refresh-v1/20260622T222917Z/`. No scanner/claim/DB-schema change.
