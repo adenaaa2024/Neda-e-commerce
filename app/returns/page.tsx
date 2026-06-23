@@ -5,7 +5,7 @@
  * Data loads via server actions in `./actions` (application layer), not inline in UI.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Boxes, Package2, ScanLine, Store } from "lucide-react";
 import { DatabaseTag } from "../../components/DatabaseTag";
 import { useGlobalSearch } from "../../components/GlobalSearchContext";
@@ -36,7 +36,14 @@ import {
   ItemsDataTable, PackagesDataTable, PalletsDataTable,
   SingleItemWizardModal, CreatePackageModal, CreatePalletModal,
   useToast,
+  type ReturnsReportPdfContext,
 } from "./_components";
+import { ReturnsSavedViewsControl } from "./returns-saved-views";
+import type {
+  AppliedReturnsView,
+  ReturnsReportSavedView,
+  ReturnsReportViewSnapshot,
+} from "../../lib/returns-saved-views";
 
 // ─── Root Page ─────────────────────────────────────────────────────────────────
 
@@ -113,6 +120,14 @@ export default function ReturnsPage() {
 
   // ── UI State ────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>("items");
+
+  // ── Saved report views (frontend-only, localStorage) ─────────────────────────
+  /** Latest filters + columns reported by the active tab's data table. */
+  const currentSnapshotRef = useRef<ReturnsReportViewSnapshot | null>(null);
+  /** Pending view to apply — passed to the matching data table and consumed once. */
+  const [appliedView, setAppliedView] = useState<AppliedReturnsView | null>(null);
+  /** Name of the saved view currently applied (best-effort) — shown in PDF reports. */
+  const [activeViewName, setActiveViewName] = useState<string | null>(null);
   const {
     role,
     actorName: actor,
@@ -548,6 +563,27 @@ export default function ReturnsPage() {
     setWizardOpen(true);
   }
 
+  // ── Saved report views — wiring ──────────────────────────────────────────────
+  /** Stable: active table reports its live filters + columns here. */
+  const handleSnapshotChange = useCallback((snapshot: ReturnsReportViewSnapshot) => {
+    currentSnapshotRef.current = snapshot;
+  }, []);
+  /** Stable: active table signals it has consumed the pending view. */
+  const handleAppliedConsumed = useCallback(() => setAppliedView(null), []);
+  /** Reads the live snapshot for "Save current view", folding in the page-level store filter. */
+  const getCurrentSnapshot = useCallback((): ReturnsReportViewSnapshot | null => {
+    const snap = currentSnapshotRef.current;
+    if (!snap) return null;
+    return { filters: { ...snap.filters, storeFilter }, columns: snap.columns };
+  }, [storeFilter]);
+  /** Restores active tab, page-level store filter, then hands the rest to the data table. */
+  const handleApplyView = useCallback((view: ReturnsReportSavedView) => {
+    setActiveTab(view.tab);
+    setStoreFilter(view.snapshot.filters.storeFilter ?? "");
+    setAppliedView({ tab: view.tab, snapshot: view.snapshot });
+    setActiveViewName(view.name);
+  }, []);
+
   // ── Derived drawer title ─────────────────────────────────────────────────────
   function drawerTitle() {
     if (!activeDrawer) return "";
@@ -564,6 +600,39 @@ export default function ReturnsPage() {
     if (activeDrawer.type === "pallet")  return "Pallet";
     return "";
   }
+
+  // ── PDF report scope (header metadata for the printable export) ──────────────
+  const pdfCompanyScope = useMemo((): string => {
+    if (canViewAllCompanies && viewAllCompanies) return "All companies";
+    if (reportCompanyFilterOrganizationId) {
+      return (
+        organizationLabelById[reportCompanyFilterOrganizationId] ??
+        companyOptionsForUi.find((o) => o.organization_id === reportCompanyFilterOrganizationId)
+          ?.display_name ??
+        reportCompanyFilterOrganizationId
+      );
+    }
+    return organizationLabelById[effectiveListOrganizationId] ?? "Current workspace";
+  }, [
+    canViewAllCompanies,
+    viewAllCompanies,
+    reportCompanyFilterOrganizationId,
+    organizationLabelById,
+    companyOptionsForUi,
+    effectiveListOrganizationId,
+  ]);
+
+  const pdfStoreScope = useMemo((): string => {
+    if (!storeFilter) return "All stores";
+    const s = storeOptions.find((opt) => opt.id === storeFilter);
+    if (!s) return "Selected store";
+    return s.platform ? `${s.name} (${s.platform})` : s.name;
+  }, [storeFilter, storeOptions]);
+
+  const pdfReportContext = useMemo<ReturnsReportPdfContext>(
+    () => ({ companyScope: pdfCompanyScope, storeScope: pdfStoreScope, activeViewName }),
+    [pdfCompanyScope, pdfStoreScope, activeViewName],
+  );
 
   // ── Tab config ───────────────────────────────────────────────────────────────
   const tabs: { id: ActiveTab; label: string; icon: React.ElementType; count: number; countTitle?: string; accent: string }[] = [
@@ -664,6 +733,13 @@ export default function ReturnsPage() {
               </select>
             </label>
           ) : null}
+
+          <ReturnsSavedViewsControl
+            activeTab={activeTab}
+            getCurrentSnapshot={getCurrentSnapshot}
+            onApply={handleApplyView}
+            onToast={showToast}
+          />
         </div>
       </header>
 
@@ -673,7 +749,7 @@ export default function ReturnsPage() {
           {tabs.map((t) => {
             const Icon = t.icon; const active = activeTab === t.id;
             return (
-              <button key={t.id} role="tab" aria-selected={active} onClick={() => setActiveTab(t.id)}
+              <button key={t.id} role="tab" aria-selected={active} onClick={() => { setActiveTab(t.id); setActiveViewName(null); }}
                 className={`flex items-center gap-2 border-b-2 px-5 py-4 text-sm font-semibold transition whitespace-nowrap ${
                   active
                     ? `${t.accent} bg-[#EFE6D2]/40 dark:bg-[#2A2418]/50`
@@ -741,6 +817,10 @@ export default function ReturnsPage() {
                   onRowEdit={openItemEdit}
                   onBulkDeleted={bulkRemoveReturns}
                   onBulkMoved={bulkUpdateReturns}
+                  onSnapshotChange={handleSnapshotChange}
+                  appliedView={appliedView}
+                  onAppliedConsumed={handleAppliedConsumed}
+                  pdfReportContext={pdfReportContext}
                 />
               </div>
             )}
@@ -766,6 +846,10 @@ export default function ReturnsPage() {
                   onRowEdit={(p)  => openDrawer({ type: "package", record: p })}
                   onBulkDeleted={bulkRemovePackages}
                   onBulkPackagesUpdated={bulkUpdatePackages}
+                  onSnapshotChange={handleSnapshotChange}
+                  appliedView={appliedView}
+                  onAppliedConsumed={handleAppliedConsumed}
+                  pdfReportContext={pdfReportContext}
                 />
               </div>
             )}
@@ -790,6 +874,10 @@ export default function ReturnsPage() {
                   onRowClick={(p) => openDrawer({ type: "pallet", record: p })}
                   onRowEdit={(p)  => openDrawer({ type: "pallet", record: p })}
                   onBulkDeleted={bulkRemovePallets}
+                  onSnapshotChange={handleSnapshotChange}
+                  appliedView={appliedView}
+                  onAppliedConsumed={handleAppliedConsumed}
+                  pdfReportContext={pdfReportContext}
                 />
               </div>
             )}
