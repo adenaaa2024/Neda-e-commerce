@@ -222,13 +222,13 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
       {/* Search — desktop (center band; does not use tenant branding) */}
       <div className="mx-1 hidden min-w-0 flex-1 md:mx-2 md:flex md:max-w-none md:justify-center">
         <label className="relative flex w-full max-w-xl items-center md:mx-auto">
-          <Search className="pointer-events-none absolute left-3 h-4 w-4 text-muted-foreground" aria-hidden />
+          <Search className="pointer-events-none absolute right-3 h-4 w-4 text-muted-foreground" aria-hidden />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search ID, tracking, ASIN…"
-            className="admin-chrome-input h-9 w-full rounded-lg py-2 pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground outline-none transition"
+            className="admin-chrome-input h-9 w-full rounded-lg py-2 pl-3 pr-9 text-xs text-foreground placeholder:text-muted-foreground outline-none transition"
             aria-label="Global search"
           />
         </label>
@@ -262,13 +262,13 @@ export function TopHeader({ onMenuClick }: { onMenuClick: () => void }) {
       {/* Search — mobile */}
       <div className="mx-0 flex min-w-0 flex-1 md:hidden">
         <label className="relative flex w-full items-center">
-          <Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          <Search className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-muted-foreground" aria-hidden />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search…"
-            className="admin-chrome-input h-8 w-full rounded-lg py-1.5 pl-8 pr-2 text-[11px] text-foreground placeholder:text-muted-foreground outline-none transition"
+            className="admin-chrome-input h-8 w-full rounded-lg py-1.5 pl-2 pr-8 text-[11px] text-foreground placeholder:text-muted-foreground outline-none transition"
             aria-label="Global search"
           />
         </label>

@@ -15,6 +15,8 @@ type Props = {
   compact?: boolean;
   /** When true, fetch canonical product title/category when resolved. */
   showCanonical?: boolean;
+  /** MENORIX palette for Returns desktop tables only. */
+  menorixTable?: boolean;
 };
 
 export function ReturnItemProductLinkage({
@@ -22,6 +24,7 @@ export function ReturnItemProductLinkage({
   fields,
   compact = false,
   showCanonical = true,
+  menorixTable = false,
 }: Props) {
   const fallback = mapRowToProductLinkageDisplayContract({
     source_table: "return_items",
@@ -74,6 +77,7 @@ export function ReturnItemProductLinkage({
       linkage={linkage}
       organizationId={organizationId}
       compact={compact}
+      menorixTable={menorixTable}
     />
   );
 }
