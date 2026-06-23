@@ -7,7 +7,7 @@ import Link from "next/link";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, BadgeInfo, Barcode, Boxes, Calendar, CalendarX2,
   Camera, CheckCircle2, CheckSquare, ChevronDown, ChevronRight, ChevronUp, CircleDot, ClipboardCheck,
-  Clock, Copy, ExternalLink, Eye, FileImage, FileText, Filter, Loader2, Minus, MoreHorizontal, Package2, Store,
+  Clock, Copy, Download, ExternalLink, Eye, FileImage, FileText, Filter, Loader2, Minus, MoreHorizontal, Package2, Store,
   PackageCheck, PackageX, Pencil, Plus, QrCode, RotateCcw, Save, ScanLine, Search,
   ShieldAlert, ShieldCheck, SlidersHorizontal, Sparkles, Tag, Trash2, Truck, User, X, XCircle, ZoomIn,
 } from "lucide-react";
@@ -92,24 +92,46 @@ import {
 import {
   availableItemsColumns,
   defaultVisibleItemsColumns,
+  orderItemsColumns,
   readVisibleItemsColumns,
   writeVisibleItemsColumns,
+  ITEMS_COLUMN_REGISTRY,
   type ItemsColumnId,
 } from "../../lib/returns-items-columns";
 import {
   availableBoxesColumns,
   defaultVisibleBoxesColumns,
+  orderBoxesColumns,
   readVisibleBoxesColumns,
   writeVisibleBoxesColumns,
+  BOXES_COLUMN_REGISTRY,
   type BoxesColumnId,
 } from "../../lib/returns-boxes-columns";
 import {
   availablePalletsColumns,
   defaultVisiblePalletsColumns,
+  orderPalletsColumns,
   readVisiblePalletsColumns,
   writeVisiblePalletsColumns,
+  PALLETS_COLUMN_REGISTRY,
   type PalletsColumnId,
 } from "../../lib/returns-pallets-columns";
+import {
+  buildExportRowsFromVisibleColumns,
+  buildReturnsExportFilename,
+  exportRowsToCsv,
+  exportRowsToXlsx,
+  type ReturnsExportTab,
+} from "../../lib/returns-report-export";
+import {
+  formatPdfStatValue,
+  type ReturnsPdfHeaderMeta,
+  type ReturnsPdfSummaryStat,
+} from "../../lib/returns-report-pdf";
+import type {
+  AppliedReturnsView,
+  ReturnsReportViewSnapshot,
+} from "../../lib/returns-saved-views";
 import {
   getReturnPhotoEvidenceUrls,
   hasReturnPhotoEvidenceCounts,
@@ -7328,9 +7350,168 @@ function ReportColumnManager({
   );
 }
 
+// ─── Report Export Menu (CSV / Excel of current view) ───────────────────────────
+
+/**
+ * Export dropdown shared by the Items / Boxes / Pallets report tables.
+ *
+ * Frontend-only: it just calls back into the table with the chosen format. The
+ * table owns which (already filtered + scoped) rows and which visible columns to
+ * export, so this control can never widen company scope or include hidden data.
+ */
+/**
+ * Page-level scope context for the printable PDF report header. The data tables
+ * own the rows/columns/summary; the page owns company + store + saved-view
+ * scope, which it threads down so the PDF header reflects the active report.
+ */
+export type ReturnsReportPdfContext = {
+  /** Company scope label, e.g. "All companies" or a company display name. */
+  companyScope: string;
+  /** Store filter label, e.g. "All stores" or a single store name. */
+  storeScope: string;
+  /** Active saved view name, when one is applied. */
+  activeViewName: string | null;
+};
+
+function ReturnsReportExportMenu({
+  rowCount,
+  onExport,
+}: {
+  /** Number of rows that will be exported — shown in the menu for confidence. */
+  rowCount: number;
+  onExport: (format: "csv" | "xlsx" | "pdf") => void | Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const handlePick = useCallback(
+    async (format: "csv" | "xlsx" | "pdf") => {
+      setOpen(false);
+      setBusy(true);
+      try {
+        await onExport(format);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onExport],
+  );
+
+  const ITEM_CLS =
+    "flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-[#171A1E] transition hover:bg-[#EFE6D2]/60 disabled:opacity-50 dark:text-[#F7F3EA] dark:hover:bg-[#2A2418]/60";
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        disabled={rowCount === 0 || busy}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`${RT_CLEAR_BTN} h-10`}
+        title={rowCount === 0 ? "No rows to export" : "Export the current view"}
+      >
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+        Export
+        <ChevronDown className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-[calc(100%+6px)] z-30 w-52 overflow-hidden rounded-xl border border-[rgba(138,104,31,0.20)] bg-[#FFFCF7] shadow-xl dark:border-[rgba(214,183,110,0.22)] dark:bg-[#1D242C]"
+        >
+          <p className="border-b border-[rgba(138,104,31,0.14)] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#737C86] dark:border-[rgba(214,183,110,0.16)] dark:text-[#7E8894]">
+            Export {rowCount} row{rowCount === 1 ? "" : "s"}
+          </p>
+          <button type="button" role="menuitem" className={ITEM_CLS} onClick={() => void handlePick("csv")}>
+            <FileText className="h-3.5 w-3.5 text-[#8A681F] dark:text-[#D6B76E]" />
+            Download CSV
+          </button>
+          <button type="button" role="menuitem" className={ITEM_CLS} onClick={() => void handlePick("xlsx")}>
+            <FileImage className="h-3.5 w-3.5 text-[#8A681F] dark:text-[#D6B76E]" />
+            Download Excel
+          </button>
+          <button type="button" role="menuitem" className={ITEM_CLS} onClick={() => void handlePick("pdf")}>
+            <FileText className="h-3.5 w-3.5 text-[#8A681F] dark:text-[#D6B76E]" />
+            Download PDF
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Run a built export matrix as CSV or Excel, with a toast on completion/failure. */
+async function runReturnsReportExport(
+  format: "csv" | "xlsx",
+  tab: ReturnsExportTab,
+  matrix: { headers: string[]; rows: string[][] },
+  sheetName: string,
+  onToast?: (msg: string, kind?: ToastKind) => void,
+): Promise<void> {
+  if (matrix.rows.length === 0) {
+    onToast?.("No rows match the current filters — nothing to export.", "warning");
+    return;
+  }
+  try {
+    if (format === "csv") {
+      exportRowsToCsv(buildReturnsExportFilename(tab, "csv"), matrix);
+    } else {
+      await exportRowsToXlsx(buildReturnsExportFilename(tab, "xlsx"), matrix, sheetName);
+    }
+    onToast?.(
+      `Exported ${matrix.rows.length} row${matrix.rows.length === 1 ? "" : "s"} to ${format === "csv" ? "CSV" : "Excel"}.`,
+      "success",
+    );
+  } catch (e) {
+    console.error("[ReturnsReportExport] export failed:", e);
+    onToast?.(`Export failed: ${e instanceof Error ? e.message : "unknown error"}`, "error");
+  }
+}
+
+/**
+ * Build + download the printable PDF report for the active tab. The heavy
+ * `@react-pdf/renderer` module is imported lazily so it only loads when a PDF
+ * export actually runs. Rows/columns are already visible-only + filtered.
+ */
+async function runReturnsReportPdfExport(
+  tab: ReturnsExportTab,
+  matrix: { headers: string[]; rows: string[][] },
+  meta: ReturnsPdfHeaderMeta,
+  summary: ReturnsPdfSummaryStat[],
+  onToast?: (msg: string, kind?: ToastKind) => void,
+): Promise<void> {
+  if (matrix.rows.length === 0) {
+    onToast?.("No rows match the current filters — nothing to export.", "warning");
+    return;
+  }
+  try {
+    const { downloadReturnsReportPdf } = await import("./returns-report-pdf-download");
+    await downloadReturnsReportPdf({ tab, meta, summary, matrix });
+    onToast?.(
+      `Exported ${matrix.rows.length} row${matrix.rows.length === 1 ? "" : "s"} to PDF.`,
+      "success",
+    );
+  } catch (e) {
+    console.error("[ReturnsReportExport] PDF export failed:", e);
+    onToast?.(`PDF export failed: ${e instanceof Error ? e.message : "unknown error"}`, "error");
+  }
+}
+
 // ─── Items Data Table ──────────────────────────────────────────────────────────
 
-export function ItemsDataTable({ items, packages, pallets, role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, platformIconBySlug = {}, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, externalSearch = "", onToast, returnsTotalInDb = null }: {
+export function ItemsDataTable({ items, packages, pallets, role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, platformIconBySlug = {}, fefoSettings, onRowClick, onRowEdit, onBulkDeleted, onBulkMoved, externalSearch = "", onToast, returnsTotalInDb = null, onSnapshotChange, appliedView = null, onAppliedConsumed, pdfReportContext }: {
   items: ReturnRecord[]; packages: PackageRecord[]; pallets: PalletRecord[];
   role: UserRole; actor: string;
   actorProfileId?: string | null;
@@ -7348,6 +7529,14 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
   onToast?: (msg: string, kind?: ToastKind) => void;
   /** Exact DB count (when known) — shows truncation banner vs `listReturns()` limit. */
   returnsTotalInDb?: number | null;
+  /** Saved views — reports this tab's live filters + columns to the page. */
+  onSnapshotChange?: (snapshot: ReturnsReportViewSnapshot) => void;
+  /** Saved views — a pending view to apply (consumed once when it targets this tab). */
+  appliedView?: AppliedReturnsView | null;
+  /** Saved views — called after `appliedView` has been applied. */
+  onAppliedConsumed?: () => void;
+  /** Page-level scope (company / store / saved view) for the printable PDF header. */
+  pdfReportContext?: ReturnsReportPdfContext;
 }) {
   const fefo_critical = fefoSettings?.fefo_critical_days ?? 30;
   const fefo_warning  = fefoSettings?.fefo_warning_days  ?? 90;
@@ -7519,6 +7708,139 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
     setPage(1);
   }, []);
 
+  // ── Export current view (CSV / Excel) — visible columns + filtered rows only ──
+  /** Single source for one Items cell's text — mirrors what the table renders. */
+  const getItemExportValue = useCallback(
+    (r: ReturnRecord, columnId: ItemsColumnId): string => {
+      const linkedPkg = r.package_id ? pkgMap.get(r.package_id) : null;
+      const linkedPlt = r.pallet_id ? pltMap.get(r.pallet_id) : null;
+      const scanCtx = scannerIndex.itemByReturnId.get(r.id);
+      switch (columnId) {
+        case "company":
+          return organizationLabelById[r.organization_id] ?? r.organization_id;
+        case "item_identifiers": {
+          const ids: string[] = [];
+          if (r.asin) ids.push(`ASIN ${r.asin}`);
+          if (r.fnsku) ids.push(`FNSKU ${r.fnsku}`);
+          if (r.sku) ids.push(`SKU ${r.sku}`);
+          const upc = upcFromProductIdentifier(r.product_identifier);
+          if (upc) ids.push(`UPC ${upc}`);
+          return [r.item_name, ids.join(" · ")].filter(Boolean).join(" — ");
+        }
+        case "product":
+          return mapRowToProductLinkageDisplayContract({
+            source_table: "return_items",
+            source_row_id: r.id,
+            row: r as unknown as Record<string, unknown>,
+          }).fallback_display_name;
+        case "tracking":
+          return r.inherited_tracking_number ?? linkedPkg?.tracking_number ?? "";
+        case "lpn":
+          return r.lpn ?? "";
+        case "store":
+          return r.stores?.name ?? (r.marketplace ? formatMarketplaceSource(r.marketplace) : "");
+        case "condition":
+          return (r.conditions ?? []).map((c) => CONDITION_META[c]?.label ?? c).join(", ");
+        case "status":
+          return STATUS_CFG[r.status]?.label ?? r.status;
+        case "expiry": {
+          const exp = getExpiryStatus(r.expiration_date, fefo_critical, fefo_warning);
+          return exp ? `${exp.label} (${exp.daysLabel})` : "";
+        }
+        case "photo":
+          return getReturnPhotoEvidenceUrls(r.photo_evidence).item_url ? "Yes" : "";
+        case "hierarchy":
+          return linkedPkg
+            ? `${linkedPkg.package_code}${linkedPlt ? ` › ${linkedPlt.pallet_number}` : ""}`
+            : "Orphaned / Loose";
+        case "box":
+          return scanCtx?.boxCode ?? linkedPkg?.package_code ?? "";
+        case "pallet":
+          return scanCtx?.palletNumber ?? linkedPlt?.pallet_number ?? "";
+        case "scan_source":
+          return scanCtx?.scanSource ?? "";
+        case "exception":
+          return scanCtx?.exceptionBadge ?? "";
+        case "operator":
+          return operatorDisplayLabel(r, itemTableOperatorNames);
+        case "date":
+          return fmt(r.created_at);
+        default:
+          return "";
+      }
+    },
+    [pkgMap, pltMap, scannerIndex, organizationLabelById, fefo_critical, fefo_warning, itemTableOperatorNames],
+  );
+
+  const handleExport = useCallback(
+    (format: "csv" | "xlsx" | "pdf") => {
+      const visibleColumnIds = availableItemsColumns(showCompanyColumn)
+        .filter((c) => (c.id === "company" ? showCompany : visibleCols.has(c.id)))
+        .map((c) => c.id);
+      const matrix = buildExportRowsFromVisibleColumns<ReturnRecord, ItemsColumnId>({
+        rows: filtered,
+        visibleColumnIds,
+        columnLabels: ITEMS_COLUMN_REGISTRY,
+        getCellValue: getItemExportValue,
+      });
+      if (format === "pdf") {
+        let received = 0;
+        let exceptions = 0;
+        let unlinked = 0;
+        for (const r of filtered) {
+          if (r.status === "received") received += 1;
+          const ctx = scannerIndex.itemByReturnId.get(r.id);
+          if ((ctx?.exceptionBadge ?? "") !== "" || !r.package_id) exceptions += 1;
+          const resolved = mapRowToProductLinkageDisplayContract({
+            source_table: "return_items",
+            source_row_id: r.id,
+            row: r as unknown as Record<string, unknown>,
+          }).is_resolved;
+          if (!resolved) unlinked += 1;
+        }
+        const summary: ReturnsPdfSummaryStat[] = [
+          { label: "Received", value: formatPdfStatValue(received) },
+          { label: "Exceptions", value: formatPdfStatValue(exceptions) },
+          { label: "Unlinked", value: formatPdfStatValue(unlinked) },
+        ];
+        const meta: ReturnsPdfHeaderMeta = {
+          companyScope: pdfReportContext?.companyScope ?? "—",
+          storeScope: pdfReportContext?.storeScope ?? "—",
+          activeViewName: pdfReportContext?.activeViewName ?? null,
+        };
+        return runReturnsReportPdfExport("items", matrix, meta, summary, onToast);
+      }
+      return runReturnsReportExport(format, "items", matrix, "Items", onToast);
+    },
+    [filtered, showCompanyColumn, showCompany, visibleCols, getItemExportValue, onToast, scannerIndex, pdfReportContext],
+  );
+
+  // ── Saved views — report this tab's live filters + columns up to the page ──
+  useEffect(() => {
+    onSnapshotChange?.({
+      filters: {
+        search, statusF, marketF, dateFrom, dateTo,
+        productLinkF, scanSourceF, exceptionF, conditionF, hasPhotoF, boxF, palletF, operatorF,
+      },
+      columns: orderItemsColumns(visibleCols),
+    });
+  }, [onSnapshotChange, search, statusF, marketF, dateFrom, dateTo, productLinkF, scanSourceF, exceptionF, conditionF, hasPhotoF, boxF, palletF, operatorF, visibleCols]);
+
+  // ── Saved views — apply a pending view that targets the Items tab (once) ──
+  useEffect(() => {
+    if (!appliedView || appliedView.tab !== "items") return;
+    const f = appliedView.snapshot.filters ?? {};
+    setSearch(f.search ?? ""); setStatusF(f.statusF ?? ""); setMarketF(f.marketF ?? "");
+    setDateFrom(f.dateFrom ?? ""); setDateTo(f.dateTo ?? "");
+    setProductLinkF(f.productLinkF ?? ""); setScanSourceF(f.scanSourceF ?? "");
+    setExceptionF(f.exceptionF ?? ""); setConditionF(f.conditionF ?? "");
+    setHasPhotoF(f.hasPhotoF ?? ""); setBoxF(f.boxF ?? ""); setPalletF(f.palletF ?? "");
+    setOperatorF(f.operatorF ?? ""); setPage(1);
+    const cols = orderItemsColumns((appliedView.snapshot.columns ?? []) as ItemsColumnId[]);
+    if (cols.length > 0) { writeVisibleItemsColumns(cols); setVisibleCols(new Set(cols)); }
+    onAppliedConsumed?.();
+  }, [appliedView, onAppliedConsumed]);
+
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
   const allSelected = filtered.length > 0 && filtered.every((r) => selectedIds.has(r.id));
@@ -7607,6 +7929,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
           onToggle={toggleCol}
           onReset={resetCols}
         />
+        <ReturnsReportExportMenu rowCount={filtered.length} onExport={handleExport} />
       </div>
 
       {/* Advanced filters panel — applied together with the primary filters above. */}
@@ -7909,7 +8232,7 @@ export function ItemsDataTable({ items, packages, pallets, role, actor, actorPro
 
 // ─── Packages Data Table ───────────────────────────────────────────────────────
 
-export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, externalSearch = "", storeFilter = "", storeOptions = [], onStoreFilterChange, onToast }: {
+export function PackagesDataTable({ packages, returns: allReturns = [], pallets = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, onBulkPackagesUpdated, externalSearch = "", storeFilter = "", storeOptions = [], onStoreFilterChange, onToast, onSnapshotChange, appliedView = null, onAppliedConsumed, pdfReportContext }: {
   packages: PackageRecord[]; returns?: ReturnRecord[]; pallets?: PalletRecord[];
   role: UserRole; actor: string;
   actorProfileId?: string | null;
@@ -7925,6 +8248,14 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
   storeOptions?: { id: string; name: string; platform: string }[];
   onStoreFilterChange?: (storeId: string) => void;
   onToast?: (msg: string, kind?: ToastKind) => void;
+  /** Saved views — reports this tab's live filters + columns to the page. */
+  onSnapshotChange?: (snapshot: ReturnsReportViewSnapshot) => void;
+  /** Saved views — a pending view to apply (consumed once when it targets this tab). */
+  appliedView?: AppliedReturnsView | null;
+  /** Saved views — called after `appliedView` has been applied. */
+  onAppliedConsumed?: () => void;
+  /** Page-level scope (company / store / saved view) for the printable PDF header. */
+  pdfReportContext?: ReturnsReportPdfContext;
 }) {
   const [search, setSearch] = useState(""); const [statusF, setStatusF] = useState("");
   const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState("");
@@ -8091,6 +8422,119 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
     setPage(1);
   }, [onStoreFilterChange]);
 
+  // ── Export current view (CSV / Excel) — visible columns + filtered rows only ──
+  /** Single source for one Boxes cell's text — mirrors what the table renders. */
+  const getBoxExportValue = useCallback(
+    (p: PackageRecord, columnId: BoxesColumnId): string => {
+      const scanCtx = scannerIndex.packageById.get(p.id);
+      const assignedCount = assignedByPackage.get(p.id) ?? 0;
+      switch (columnId) {
+        case "company":
+          return organizationLabelById[p.organization_id] ?? p.organization_id;
+        case "box_number":
+          return p.package_code;
+        case "store":
+          return p.stores?.name ?? "Mixed / Unassigned";
+        case "carrier_tracking":
+          return [p.carrier_name, p.tracking_number].filter(Boolean).join(" / ");
+        case "items":
+          return `${assignedCount}/${p.expected_item_count > 0 ? p.expected_item_count : "?"}`;
+        case "expected":
+          return formatReportCount(scanCtx?.expected);
+        case "scanned":
+          return formatReportCount(scanCtx?.scanned);
+        case "missing":
+          return formatReportCount(scanCtx?.missing);
+        case "marked_missing":
+          return formatReportCount(scanCtx?.markedMissing);
+        case "slip_review":
+          return scanCtx?.slipReview ?? "";
+        case "status":
+          return PKG_STATUS_CFG[p.status]?.label ?? p.status;
+        case "last_operator":
+          return scanCtx?.lastOperatorId
+            ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pkgTableOperatorNames)
+            : "";
+        case "last_activity":
+          return scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : "";
+        case "operator":
+          return operatorDisplayLabel(p, pkgTableOperatorNames);
+        case "date":
+          return fmt(p.created_at);
+        default:
+          return "";
+      }
+    },
+    [scannerIndex, assignedByPackage, organizationLabelById, pkgTableOperatorNames],
+  );
+
+  const handleExport = useCallback(
+    (format: "csv" | "xlsx" | "pdf") => {
+      const visibleColumnIds = availableBoxesColumns(showCompanyColumn)
+        .filter((c) => (c.id === "company" ? showCompany : visibleCols.has(c.id)))
+        .map((c) => c.id);
+      const matrix = buildExportRowsFromVisibleColumns<PackageRecord, BoxesColumnId>({
+        rows: filtered,
+        visibleColumnIds,
+        columnLabels: BOXES_COLUMN_REGISTRY,
+        getCellValue: getBoxExportValue,
+      });
+      if (format === "pdf") {
+        let expected = 0;
+        let scanned = 0;
+        let missing = 0;
+        let markedMissing = 0;
+        for (const p of filtered) {
+          const ctx = scannerIndex.packageById.get(p.id);
+          if (ctx?.expected != null) expected += ctx.expected;
+          scanned += ctx?.scanned ?? 0;
+          if (ctx?.missing != null && ctx.missing > 0) missing += ctx.missing;
+          if (ctx?.markedMissing != null && ctx.markedMissing > 0) markedMissing += ctx.markedMissing;
+        }
+        const summary: ReturnsPdfSummaryStat[] = [
+          { label: "Expected", value: formatPdfStatValue(expected) },
+          { label: "Scanned", value: formatPdfStatValue(scanned) },
+          { label: "Missing", value: formatPdfStatValue(missing) },
+          { label: "Marked missing", value: formatPdfStatValue(markedMissing) },
+        ];
+        const meta: ReturnsPdfHeaderMeta = {
+          companyScope: pdfReportContext?.companyScope ?? "—",
+          storeScope: pdfReportContext?.storeScope ?? "—",
+          activeViewName: pdfReportContext?.activeViewName ?? null,
+        };
+        return runReturnsReportPdfExport("boxes", matrix, meta, summary, onToast);
+      }
+      return runReturnsReportExport(format, "boxes", matrix, "Boxes", onToast);
+    },
+    [filtered, showCompanyColumn, showCompany, visibleCols, getBoxExportValue, onToast, scannerIndex, pdfReportContext],
+  );
+
+  // ── Saved views — report this tab's live filters + columns up to the page ──
+  useEffect(() => {
+    onSnapshotChange?.({
+      filters: {
+        search, statusF, dateFrom, dateTo,
+        carrierF, slipReviewF, hasMissingF, hasMarkedMissingF, hasIssuesF, expectedF, operatorF,
+      },
+      columns: orderBoxesColumns(visibleCols),
+    });
+  }, [onSnapshotChange, search, statusF, dateFrom, dateTo, carrierF, slipReviewF, hasMissingF, hasMarkedMissingF, hasIssuesF, expectedF, operatorF, visibleCols]);
+
+  // ── Saved views — apply a pending view that targets the Boxes tab (once) ──
+  useEffect(() => {
+    if (!appliedView || appliedView.tab !== "packages") return;
+    const f = appliedView.snapshot.filters ?? {};
+    setSearch(f.search ?? ""); setStatusF(f.statusF ?? "");
+    setDateFrom(f.dateFrom ?? ""); setDateTo(f.dateTo ?? "");
+    setCarrierF(f.carrierF ?? ""); setSlipReviewF(f.slipReviewF ?? "");
+    setHasMissingF(f.hasMissingF ?? ""); setHasMarkedMissingF(f.hasMarkedMissingF ?? "");
+    setHasIssuesF(f.hasIssuesF ?? ""); setExpectedF(f.expectedF ?? "");
+    setOperatorF(f.operatorF ?? ""); setPage(1);
+    const cols = orderBoxesColumns((appliedView.snapshot.columns ?? []) as BoxesColumnId[]);
+    if (cols.length > 0) { writeVisibleBoxesColumns(cols); setVisibleCols(new Set(cols)); }
+    onAppliedConsumed?.();
+  }, [appliedView, onAppliedConsumed]);
+
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
   const allSelected = filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
@@ -8215,6 +8659,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
           onToggle={toggleCol}
           onReset={resetCols}
         />
+        <ReturnsReportExportMenu rowCount={filtered.length} onExport={handleExport} />
       </div>
 
       {/* Advanced filters panel — applied together with the primary filters above. */}
@@ -8515,7 +8960,7 @@ export function PackagesDataTable({ packages, returns: allReturns = [], pallets 
 
 // ─── Pallets Data Table ────────────────────────────────────────────────────────
 
-export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, externalSearch = "", storeFilter = "", storeOptions = [], onStoreFilterChange, onToast }: {
+export function PalletsDataTable({ pallets, packages: allPackages = [], returns: allReturns = [], role, actor, actorProfileId = null, showCompanyColumn = false, organizationLabelById = {}, onRowClick, onRowEdit, onBulkDeleted, externalSearch = "", storeFilter = "", storeOptions = [], onStoreFilterChange, onToast, onSnapshotChange, appliedView = null, onAppliedConsumed, pdfReportContext }: {
   pallets: PalletRecord[]; packages?: PackageRecord[]; returns?: ReturnRecord[]; role: UserRole; actor: string;
   actorProfileId?: string | null;
   showCompanyColumn?: boolean;
@@ -8528,6 +8973,14 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
   storeOptions?: { id: string; name: string; platform: string }[];
   onStoreFilterChange?: (storeId: string) => void;
   onToast?: (msg: string, kind?: ToastKind) => void;
+  /** Saved views — reports this tab's live filters + columns to the page. */
+  onSnapshotChange?: (snapshot: ReturnsReportViewSnapshot) => void;
+  /** Saved views — a pending view to apply (consumed once when it targets this tab). */
+  appliedView?: AppliedReturnsView | null;
+  /** Saved views — called after `appliedView` has been applied. */
+  onAppliedConsumed?: () => void;
+  /** Page-level scope (company / store / saved view) for the printable PDF header. */
+  pdfReportContext?: ReturnsReportPdfContext;
 }) {
   const [search, setSearch] = useState(""); const [statusF, setStatusF] = useState("");
   const [dateFrom, setDateFrom] = useState(""); const [dateTo, setDateTo] = useState("");
@@ -8687,6 +9140,115 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
     setPage(1);
   }, [onStoreFilterChange]);
 
+  // ── Export current view (CSV / Excel) — visible columns + filtered rows only ──
+  /** Single source for one Pallets cell's text — mirrors what the table renders. */
+  const getPalletExportValue = useCallback(
+    (p: PalletSortRow, columnId: PalletsColumnId): string => {
+      const scanCtx = scannerIndex.palletById.get(p.id);
+      switch (columnId) {
+        case "company":
+          return organizationLabelById[p.organization_id] ?? p.organization_id;
+        case "pallet_number":
+          return p.pallet_number;
+        case "store":
+          return p.stores?.name ?? "Multi-Store";
+        case "boxes_items":
+          return `${p._rollupPkgs} boxes · ${p._rollupItems} items`;
+        case "boxes_closed_total":
+          return scanCtx && scanCtx.boxesTotal > 0 ? `${scanCtx.boxesClosed}/${scanCtx.boxesTotal}` : "";
+        case "expected":
+          return formatReportCount(scanCtx?.expected);
+        case "scanned":
+          return formatReportCount(scanCtx?.scanned);
+        case "missing":
+          return formatReportCount(scanCtx?.missing);
+        case "issues":
+          return formatPalletIssuesDisplay(scanCtx).primaryLabel;
+        case "status":
+          return PALLET_STATUS_CFG[p.status]?.label ?? p.status;
+        case "last_operator":
+          return scanCtx?.lastOperatorId
+            ? operatorDisplayLabel({ created_by: scanCtx.lastOperatorId }, pltTableOperatorNames)
+            : "";
+        case "last_activity":
+          return scanCtx?.lastActivityAt ? fmt(scanCtx.lastActivityAt) : "";
+        case "operator":
+          return operatorDisplayLabel(p, pltTableOperatorNames);
+        case "date":
+          return fmt(p.created_at);
+        default:
+          return "";
+      }
+    },
+    [scannerIndex, organizationLabelById, pltTableOperatorNames],
+  );
+
+  const handleExport = useCallback(
+    (format: "csv" | "xlsx" | "pdf") => {
+      const visibleColumnIds = availablePalletsColumns(showCompanyColumn)
+        .filter((c) => (c.id === "company" ? showCompany : visibleCols.has(c.id)))
+        .map((c) => c.id);
+      const matrix = buildExportRowsFromVisibleColumns<PalletSortRow, PalletsColumnId>({
+        rows: filtered,
+        visibleColumnIds,
+        columnLabels: PALLETS_COLUMN_REGISTRY,
+        getCellValue: getPalletExportValue,
+      });
+      if (format === "pdf") {
+        let boxes = 0;
+        let scanned = 0;
+        let missing = 0;
+        let issues = 0;
+        for (const p of filtered) {
+          const ctx = scannerIndex.palletById.get(p.id);
+          boxes += p._rollupPkgs ?? 0;
+          scanned += ctx?.scanned ?? 0;
+          if (ctx?.missing != null && ctx.missing > 0) missing += ctx.missing;
+          issues += ctx?.issues ?? 0;
+        }
+        const summary: ReturnsPdfSummaryStat[] = [
+          { label: "Boxes", value: formatPdfStatValue(boxes) },
+          { label: "Scanned", value: formatPdfStatValue(scanned) },
+          { label: "Missing", value: formatPdfStatValue(missing) },
+          { label: "Issues", value: formatPdfStatValue(issues) },
+        ];
+        const meta: ReturnsPdfHeaderMeta = {
+          companyScope: pdfReportContext?.companyScope ?? "—",
+          storeScope: pdfReportContext?.storeScope ?? "—",
+          activeViewName: pdfReportContext?.activeViewName ?? null,
+        };
+        return runReturnsReportPdfExport("pallets", matrix, meta, summary, onToast);
+      }
+      return runReturnsReportExport(format, "pallets", matrix, "Pallets", onToast);
+    },
+    [filtered, showCompanyColumn, showCompany, visibleCols, getPalletExportValue, onToast, scannerIndex, pdfReportContext],
+  );
+
+  // ── Saved views — report this tab's live filters + columns up to the page ──
+  useEffect(() => {
+    onSnapshotChange?.({
+      filters: {
+        search, statusF, dateFrom, dateTo,
+        hasOpenBoxesF, hasIssuesF, hasMissingF, closedProgressF, operatorF,
+      },
+      columns: orderPalletsColumns(visibleCols),
+    });
+  }, [onSnapshotChange, search, statusF, dateFrom, dateTo, hasOpenBoxesF, hasIssuesF, hasMissingF, closedProgressF, operatorF, visibleCols]);
+
+  // ── Saved views — apply a pending view that targets the Pallets tab (once) ──
+  useEffect(() => {
+    if (!appliedView || appliedView.tab !== "pallets") return;
+    const f = appliedView.snapshot.filters ?? {};
+    setSearch(f.search ?? ""); setStatusF(f.statusF ?? "");
+    setDateFrom(f.dateFrom ?? ""); setDateTo(f.dateTo ?? "");
+    setHasOpenBoxesF(f.hasOpenBoxesF ?? ""); setHasIssuesF(f.hasIssuesF ?? "");
+    setHasMissingF(f.hasMissingF ?? ""); setClosedProgressF(f.closedProgressF ?? "");
+    setOperatorF(f.operatorF ?? ""); setPage(1);
+    const cols = orderPalletsColumns((appliedView.snapshot.columns ?? []) as PalletsColumnId[]);
+    if (cols.length > 0) { writeVisiblePalletsColumns(cols); setVisibleCols(new Set(cols)); }
+    onAppliedConsumed?.();
+  }, [appliedView, onAppliedConsumed]);
+
   const total = Math.max(1, Math.ceil(filtered.length / PER));
   const rows  = filtered.slice((page-1)*PER, page*PER);
   const allSelected = filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id));
@@ -8802,6 +9364,7 @@ export function PalletsDataTable({ pallets, packages: allPackages = [], returns:
           onToggle={toggleCol}
           onReset={resetCols}
         />
+        <ReturnsReportExportMenu rowCount={filtered.length} onExport={handleExport} />
       </div>
 
       {/* Advanced filters panel — applied together with the primary filters above. */}
