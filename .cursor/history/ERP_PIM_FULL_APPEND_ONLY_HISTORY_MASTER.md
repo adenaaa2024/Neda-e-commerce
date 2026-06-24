@@ -240484,3 +240484,126 @@ no_amazon_call **yes** (no SP-API/Reports/Finances/case call; only DB SELECT pro
 **NEXT_PROMPT:** PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1 — re-run the read-only family-aware dry-run across all 17 families against the refreshed read models (now backed by the 20,072 fresh settlement rows). Then PHASE-CLAIM-CANDIDATE-PHYSICAL-RECEIVING-AND-LIVE-DELIVERY-GATE-REBUILD-V1. Meanwhile RESUME the 8 in-progress source pulls (re-run the live-source-sync orchestrator within the UTC day, or let cron/resume finish report generation) so settlement/reimbursement/removal/ledger/fee/returns edges become order-linked and the absent reference-graph categories populate.
 
 **Files (this phase):** none new (re-ran existing read-only `scripts/phase-product-trid-story-live-refresh-v1.ts`) + append-only memory quartet + master history. Report: `.cursor/audit-reports/phase-product-trid-story-live-refresh-v1/20260622T222917Z/`. No scanner/claim/DB-schema change.
+
+---
+
+## PHASE-AMAZON-LIVE-SOURCE-SYNC-RESUME-AND-COMPLETE-V1 — `20260624T012511Z`
+
+**Mode:** guarded live source-sync RESUME @ LIVE `kxsvedvpjldygtdbylsy` (org `00000000-…-0001`, store `509ee1f6-…`). **NO claim submission, NO Amazon case/Feeds API, NO browser automation, NO claim-candidate generation, NO `claim_*` mutation, NO scanner change, NO AI as source of truth, NO secrets printed.** Both gates pass (approval token=yes + worker master flag + per-source flags + finances flags + `CRON_SECRET` + credentials present).
+
+### What ran
+NEW resume orchestrator `scripts/phase-amazon-live-source-sync-resume-and-complete-v1.ts` (companion to the run orchestrator). Because the run orchestrator floors the pull window to *today's* UTC day — and the original pull was on `20260622` while this resume ran `20260624` — re-running it would have minted DUPLICATE report requests. Instead this phase resumes each EXISTING `raw_report_uploads` row **by `uploadId`** (mirrors the per-source `/resume` API routes): the worker loads the stored `source_run` (window + already-created `report_id`) and POLLS the existing report — never a new `createReport`. All 9 `source_run_id`s were REUSED; `new_source_run_ids_if_any = {}`. `SYNC_MAX_ATTEMPTS=4`, 20s back-off, per-source 900s / global 3000s wall, hard 600s per-call timeout. Run via Linux Node 20.18.2 + `npm ci` (host had a Windows `node_modules`; toolchain installed under `/tmp`, deterministic lockfile reinstall, no source/lockfile change).
+
+### Results — 4 sources completed (net +1,807 rows)
+- **reimbursements** complete `+1,063` (17,546→**18,609**), report `2047038020626`, run `98420f08-…`.
+- **removal_order** complete `+93` (3,726→**3,819**), report `2047039020626`, run `d4079886-…`.
+- **removal_shipment** complete `+167` (11,525→**11,692**), report `2047040020626`, run `176dd88d-…`.
+- **fba_returns** complete `+484` (2,574→**3,058**), report `2047041020626`, run `3b2bd6de-…`.
+
+### Still generating (retry SAFE — back off, resume later / cron)
+- **inventory_ledger** `2fedfde7-…`: first attempt `sp_api_throttled`/`QuotaExceeded` on `createReport`; worker then created report `2048175020628`, now generating. State `polling`, `needs_resume`. Backed off per rate-limit rule.
+- **finances_archive** `f9708ba3-…`: mid `list_events_by_group` pagination, group **2/53**; transient `ingest_error` at the budget boundary. Events land only after all 53 groups paginate+flatten → needs several more resume cycles.
+
+### Failed with documented, out-of-scope blockers (retry NOT safe as-is)
+- **fee_preview** `dcf6a6c6-…`: report generated (`2047042020626`, downloaded) but the IMPORT pipeline failed `assess pipeline: domain count failed:` — the `amazon_fee_preview` domain table schema is incomplete (the `select id … eq(upload_id)` count errors). NOT a permission/Amazon failure; needs an additive `amazon_fee_preview` schema fix (separate gated migration).
+- **inbound_performance** `4d3625a8-…`: `createReport` for `GET_FBA_FULFILLMENT_INBOUND_PERFORMANCE_DATA` returned **HTTP 400** (bad request, not 403). Re-issuing identical params will 400 again; needs a report-request/`reportOptions` fix.
+
+### Settlement (idempotent-replay safety verified READ-ONLY, NOT re-executed)
+Settlement upload `d5d331bb-…` / run `d4c7682a-…` / report `2046787020626` is mid-pipeline (`state=syncing`) with **34,500** domain rows already tagged to that upload from the initial pull. The explicit-`uploadId` resume path does NOT pass the worker's idempotent-replay completion guard, so re-executing was **skipped to avoid double-import**. `settlement_replayed_idempotently = no` (skipped for safety; `amazon_settlements` total **677,098** unchanged).
+
+### Verifications
+`missing_permissions=[]` (no 403). `no_claim_candidate_generation` / `no_claim_mutation` [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13 — identical before/after] / `no_amazon_submission` / `no_scanner_change` **verified**; no secrets printed. tsc 0; smoke `smoke-data-sources-hub-v1` 32/32; build `npm run build` exit 0 (115 pages); next build exit 0. `data_sources_hub_updated=yes`.
+
+### Output flags
+- **SAFE_LIVE_SOURCE_SYNC_RESUME_COMPLETE = no** (partial — 4/8 report sources fully imported; 2 healthy & generating; 2 failed with documented blockers).
+- **SAFE_TO_RUN_FAMILY_CLAIM_GENERATORS_DRY_RUN = yes.**
+
+**NEXT_PROMPT:** RESUME-AGAIN for inventory_ledger + finances_archive after a back-off (re-run this idempotent phase — it reuses the same `source_run_id`s — or let cron/resume routes finish), then `PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1`. Separately (each its own gated phase): fix the `amazon_fee_preview` domain-table schema; fix the inbound-performance `createReport` params.
+
+**Files (this phase):** `scripts/phase-amazon-live-source-sync-resume-and-complete-v1.ts` (new) + append-only memory quartet + master history. Report: `.cursor/audit-reports/phase-amazon-live-source-sync-resume-and-complete-v1/20260624T012511Z/` (summary.json + manifest.json + findings.md). No scanner/claim/DB-schema change.
+
+
+---
+
+## PHASE-AMAZON-LIVE-SOURCE-SYNC-RESUME-AND-COMPLETE-V1 — RESUME-AGAIN cycle (`20260624T022259Z`, prior cycle `20260624T020858Z`)
+
+**Target:** LIVE `kxsvedvpjldygtdbylsy` · **Mode:** guarded live source-sync resume only · **Store:** `509ee1f6-622c-46a5-8110-7b889ba46c2c` · **Org:** `00000000-0000-0000-0000-000000000001`
+**Guards honored:** NO claim submission · NO Amazon case/Feeds API · NO browser automation · NO claim-candidate generation · NO `claim_*` mutation · NO scanner change · NO AI as source of truth · NO secrets printed.
+**Gates:** approval=yes (`APPROVED_AMAZON_INITIAL_LIVE_SOURCE_SYNC_V1=yes`), env_keys_status=complete (all 12 flags + `CRON_SECRET`), live_sync_permitted=YES.
+
+### What ran
+Executed the recommended RESUME-AGAIN loop: re-ran the existing idempotent resume orchestrator `scripts/phase-amazon-live-source-sync-resume-and-complete-v1.ts --execute` for **two** more cycles after a back-off (cycle 1 `SYNC_MAX_ATTEMPTS=4`; cycle 2 `SYNC_MAX_ATTEMPTS=6`, `SYNC_WORKER_TIMEOUT_MS=1500000`). All 9 `source_run_id`s REUSED again; **new_source_run_ids={}** — resume-by-`uploadId` polls existing reports, never `createReport`, so no duplicate report requests. No code changed (existing script re-run); env via Linux Node 20.18.2 toolchain under `/tmp` (host had a Windows-built node_modules + a freshly-created broken Python venv — see Environment note).
+
+### Result — inventory_ledger major import; rest blocked/slow
+- **inventory_ledger — IMPORTED +89,039 rows this session** (`282,352 → 371,391`; cycle 1 polled report `2048175020628` DONE → downloaded → imported an 89,039-row batch; cycle 2 added the remainder then hit `QuotaExceeded` throttle on continued polling). Now **fresh** (latest_event_date `2026-06-21`). State still non-terminal (`needs_resume`/throttled) → back off; cron/next resume finishes the tail.
+- **reimbursements / removal_order / removal_shipment / fba_returns** — `already_complete` (terminal `complete`), **0 rows** re-imported (idempotent no-op; totals unchanged 18,609 / 3,819 / 11,692 / 3,058). Confirms no double-import.
+- **fee_preview** — still failing (report `2048225020628` generated but the IMPORT pipeline errors `assess pipeline: domain count failed` = `amazon_fee_preview` domain-table schema incomplete). Out-of-scope: needs an additive migration, not a blind retry. 0 rows.
+- **inbound_performance** — still `createReport` HTTP 400 for `GET_FBA_FULFILLMENT_INBOUND_PERFORMANCE_DATA`; needs `reportOptions`/params fix. 0 rows (137 total unchanged).
+- **finances_archive** — `max_attempts`/`run_failed`: exhausts the per-run resume attempts mid event-group pagination; events unchanged at 20,221. Slow but resumable via cron (no hard blocker).
+- **settlement** — `verified_read_only`, NOT re-executed (upload `d5d331bb` state=syncing, 34,500 rows already tagged; re-execute skipped to avoid double-import). `amazon_settlements` 677,098 unchanged. `settlement_replayed_idempotently=no`. Missing-SKU Order rows still 0/0/0.
+
+`missing_permissions=[]`. `throttled_sources=[inventory_ledger]` (cycle 2). `create_report_failed_sources=[]` this session (inbound_performance recorded as failed/unknown).
+
+### Verifications
+- no_claim_candidate_generation: verified — only source pull/ingest workers resumed.
+- no_claim_mutation: verified — `claim_candidates` 9155, `claim_cases` 22, `claim_lines` 22, `claim_submissions` 13 identical before/after (both cycles).
+- no_amazon_submission: verified — Reports/Finances pull workers only; no case-submission / Feeds API.
+- no_scanner_change: verified — no scanner code touched.
+- No secrets printed. data_sources_hub_updated=yes.
+
+### Build / smoke
+- `tsc --noEmit` exit 0
+- `smoke-data-sources-hub-v1` 32/32 PASS
+- `npm run build` (next build) exit 0 — **after** removing an untracked broken local Python venv (`backend-python/venv`, see note); added `backend-python/venv/` + `.venv/` to `.gitignore`.
+
+### Verdicts
+- `SAFE_LIVE_SOURCE_SYNC_RESUME_COMPLETE = no` (partial): 5/8 report sources done (reimbursements/removal_order/removal_shipment/fba_returns complete + inventory_ledger fresh through 06-21 with +89,039 rows landed); finances_archive needs more pagination cycles; fee_preview + inbound_performance blocked by documented out-of-scope issues.
+- `SAFE_TO_RUN_FAMILY_CLAIM_GENERATORS_DRY_RUN = yes`.
+- NEXT: let cron / a later back-off resume finish the inventory_ledger tail + finances_archive pagination; run `PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1`; separately fix `amazon_fee_preview` domain schema + inbound_performance createReport params (each its own gated phase).
+
+### Environment note
+This session host again had a Windows-built `node_modules` resolved via the `/tmp` Linux Node 20.18.2 toolchain + prior `npm ci`. Additionally a local Python virtualenv `backend-python/venv` (untracked, created this session at 02:12) had `bin/python → python3 → /usr/bin/python3` symlinks that escape the project filesystem root, which Turbopack rejected (`Symlink ... invalid, it points out of the filesystem root`) while resolving a `DirAssetReference` from `lib/products/contracts/product-cogs-source-build-v1.ts` — breaking `next build`. Removed the untracked regenerable venv and gitignored it; build returned to exit 0 (its prior state). No application/source/scanner/lockfile change.
+
+### Files
+- `scripts/phase-amazon-live-source-sync-resume-and-complete-v1.ts` (re-run; unchanged)
+- `.gitignore` (additive: ignore local `backend-python/venv/`)
+- memory quartet + this history
+- Reports: `.cursor/audit-reports/phase-amazon-live-source-sync-resume-and-complete-v1/20260624T020858Z/` and `.../20260624T022259Z/`
+
+
+---
+
+## PHASE-AMAZON-LIVE-SOURCE-SYNC-RESUME-AND-COMPLETE-V1 — RESUME-AGAIN cycle 3 / CONVERGED (`20260624T030733Z`)
+
+**Target:** LIVE `kxsvedvpjldygtdbylsy` · **Mode:** guarded live source-sync resume only · **Store:** `509ee1f6-622c-46a5-8110-7b889ba46c2c`
+**Guards honored:** NO claim submission · NO Amazon case/Feeds API · NO browser · NO claim-candidate generation · NO `claim_*` mutation · NO scanner change · NO AI · NO secrets.
+**Gates:** approval=yes, env_keys_status=complete (all 12 flags + `CRON_SECRET`), live_sync_permitted=YES, run executed live.
+
+### What ran & outcome — STEADY STATE (zero net new rows)
+Re-ran the existing idempotent orchestrator after ~45 min more back-off (`SYNC_MAX_ATTEMPTS=6`, `SYNC_WORKER_TIMEOUT_MS=1500000`). All 9 `source_run_id`s REUSED; new_source_run_ids={}. This cycle imported **0 net new rows on every source** — the resume loop has CONVERGED:
+- **inventory_ledger — DATA COMPLETE (371,391 rows, fresh through 2026-06-21).** Re-polled the report (`2048233020628`), re-downloaded the same 89,039-row payload, all already-present → `existing_row_count_before==after==371,391`, rows_imported=0. Run-state ends `failed`/`generic_failed` (`needs_resume=false`): the `source_run` won't flip to a clean terminal `complete` via the resume-by-uploadId path, but the **domain data is fully imported and fresh**. Treat inventory_ledger as DONE for data purposes; do NOT keep re-running (wastes SP-API quota re-downloading the same report).
+- **reimbursements / removal_order / removal_shipment / fba_returns** — `already_complete`, 0 re-imported (18,609 / 3,819 / 11,692 / 3,058 unchanged). Idempotent.
+- **fee_preview** — still `failed` (report `2048225020628` generated but the IMPORT pipeline errors `assess pipeline: domain count failed` = `amazon_fee_preview` domain-table schema incomplete). attempts=6. Out-of-scope: needs an additive migration.
+- **inbound_performance** — still `createReport` HTTP 400; needs `reportOptions`/params fix. 137 unchanged.
+- **finances_archive** — `run_failed` mid event-group pagination; events unchanged at 20,221. Needs many more pagination cycles → leave to cron / a budget/pagination fix; bounded in-run attempts don't finish it.
+- **settlement** — `verified_read_only`, NOT re-executed (677,098 unchanged; settlement_replayed_idempotently=no). Missing-SKU Order rows still 0/0/0.
+
+throttled_sources=[]; create_report_failed_sources=[]; missing_permissions=[]; rate_limit_or_api_errors=[].
+
+NOTE: the script's emitted `NEXT_PROMPT` ("OPERATOR-ACTION — gates blocked") is a **misleading fallback** the orchestrator prints when no source ends in a resumable/complete-with-rows state; the gates in fact PASSED (approval approved, env complete, live_sync_permitted=YES, the run executed live and polled reports). Real next step is below.
+
+### Verifications
+- no_claim_candidate_generation / no_claim_mutation [claim_candidates 9155, claim_cases 22, claim_lines 22, claim_submissions 13 — identical before/after] / no_amazon_submission / no_scanner_change **verified**; no secrets; data_sources_hub_updated=yes.
+
+### Build / smoke
+- `tsc --noEmit` exit 0 · `smoke-data-sources-hub-v1` 32/32 PASS · `npm run build` (next build) exit 0.
+- Build-env: the untracked broken `backend-python/venv` (escapes project root → Turbopack `DirAssetReference` failure) did NOT reappear this session; build clean. It remains gitignored from the prior cycle.
+
+### Verdicts
+- `SAFE_LIVE_SOURCE_SYNC_RESUME_COMPLETE = no` (partial but CONVERGED): 5/8 report sources done (4 complete + inventory_ledger data-complete/fresh +89,039 across the session); finances_archive needs cron / pagination fix; fee_preview + inbound_performance blocked by documented out-of-scope issues. **Further blind resume cycles add nothing** — stop looping.
+- `SAFE_TO_RUN_FAMILY_CLAIM_GENERATORS_DRY_RUN = yes`.
+- NEXT (real): run `PHASE-FAMILY-CLAIM-GENERATORS-DRY-RUN-V1`; let cron drain finances_archive over time; open separate gated phases to fix `amazon_fee_preview` domain schema + inbound_performance createReport params. Do NOT keep re-running the resume orchestrator (converged).
+
+### Files
+- `scripts/phase-amazon-live-source-sync-resume-and-complete-v1.ts` (re-run; unchanged) + memory quartet + this history.
+- Report: `.cursor/audit-reports/phase-amazon-live-source-sync-resume-and-complete-v1/20260624T030733Z/`

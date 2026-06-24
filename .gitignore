@@ -55,6 +55,9 @@ next-env.d.ts
 # Python generated cache
 backend-python/__pycache__/
 backend-python/**/*.pyc
+# Local Python virtualenv (regenerable; symlinks escape project root and break Turbopack scans)
+backend-python/venv/
+backend-python/.venv/
 
 # raw/generated data exports
 **/amazon-raw/**
