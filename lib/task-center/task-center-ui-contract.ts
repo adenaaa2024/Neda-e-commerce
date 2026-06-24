@@ -15,6 +15,7 @@ export const TASK_CENTER_ROUTES = {
   queues: "/task-center/queues",
   team: "/task-center/queues",
   teamGroup: (groupKey: string) => `/task-center/team/${encodeURIComponent(groupKey)}`,
+  claims: "/task-center/claims",
   sources: "/task-center/sources",
   sourcesScanner: "/task-center/sources/scanner",
   sourcesClaims: "/task-center/sources/claims",
@@ -33,6 +34,7 @@ export const TASK_CENTER_COMMAND_NAV: MenorixModuleNavItem[] = [
   { href: TASK_CENTER_ROUTES.home, label: "Home", shortLabel: "Home", exact: true },
   { href: TASK_CENTER_ROUTES.my, label: "My Tasks", shortLabel: "My" },
   { href: TASK_CENTER_ROUTES.queues, label: "Team / Queue", shortLabel: "Team" },
+  { href: TASK_CENTER_ROUTES.claims, label: "Claims", shortLabel: "Claims" },
   { href: TASK_CENTER_ROUTES.sources, label: "Source Work", shortLabel: "Sources" },
   { href: TASK_CENTER_ROUTES.org, label: "Org Structure", shortLabel: "Org" },
 ];

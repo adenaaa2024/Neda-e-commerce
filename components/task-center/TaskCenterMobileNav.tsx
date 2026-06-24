@@ -37,6 +37,9 @@ export function TaskCenterMobileNav() {
           <div className={`${TASK_CENTER_CARD_CLASS} absolute bottom-16 left-4 right-4 p-3 shadow-xl`}>
             <p className="mb-2 text-xs font-bold uppercase opacity-60">More</p>
             <div className="flex flex-col gap-1">
+              <Link href={TASK_CENTER_ROUTES.claims} className="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium" onClick={() => setMoreOpen(false)}>
+                Claims
+              </Link>
               <Link href={TASK_CENTER_ROUTES.sources} className="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium" onClick={() => setMoreOpen(false)}>
                 Source Work
               </Link>

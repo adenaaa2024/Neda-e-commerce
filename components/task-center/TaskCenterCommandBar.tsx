@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, Home, Inbox, Layers, Network } from "lucide-react";
+import { Building2, Gavel, Home, Inbox, Layers, Network } from "lucide-react";
 
 import { TASK_CENTER_ROUTES } from "@/lib/task-center/task-center-ui-contract";
 
@@ -10,6 +10,7 @@ const STEPS = [
   { href: TASK_CENTER_ROUTES.home, label: "Home", shortLabel: "Home", icon: Home, exact: true },
   { href: TASK_CENTER_ROUTES.my, label: "My Tasks", shortLabel: "My", icon: Inbox, exact: false },
   { href: TASK_CENTER_ROUTES.queues, label: "Queues", shortLabel: "Queues", icon: Layers, exact: false },
+  { href: TASK_CENTER_ROUTES.claims, label: "Claims", shortLabel: "Claims", icon: Gavel, exact: false },
   { href: TASK_CENTER_ROUTES.sources, label: "Sources", shortLabel: "Sources", icon: Network, exact: false },
   { href: TASK_CENTER_ROUTES.org, label: "Org", shortLabel: "Org", icon: Building2, exact: false },
 ] as const;

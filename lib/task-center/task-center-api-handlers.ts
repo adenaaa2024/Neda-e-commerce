@@ -1,6 +1,7 @@
 import type { TaskCenterPriority, TaskCenterSourceModule, TaskCenterStatus } from "./task-center-schema-contract";
 import {
   fetchTaskActivity,
+  fetchTaskCenterClaimsQueue,
   fetchTaskCenterGroups,
   fetchTaskCenterSourceSummary,
   fetchTaskCenterSummary,
@@ -78,6 +79,40 @@ export async function getTaskCenterTasksPayload(args: {
     overdue: url.searchParams.get("overdue") === "1",
     due_soon: url.searchParams.get("due_soon") === "1",
     blocked: url.searchParams.get("blocked") === "1",
+  });
+
+  return {
+    items,
+    next_cursor: null,
+    total_estimate: items.length,
+    read_only: true,
+  };
+}
+
+/**
+ * Claims task queue payload for /task-center/claims.
+ * Reads task_items ONLY (no claim-table joins); filters by module_link_type
+ * (claim_candidate|claim_case|claim_review_work_item) with legacy source_module='claims' fallback.
+ */
+export async function getTaskCenterClaimsQueuePayload(args: {
+  organizationId: string;
+  storeId: string | null;
+  userId: string;
+  url: URL;
+  limit: number;
+}): Promise<TaskCenterTasksListResponse> {
+  const { url, limit, ...scope } = args;
+  const statusParam = url.searchParams.get("status");
+  let status: TaskCenterStatus | TaskCenterStatus[] | undefined;
+  if (statusParam) {
+    status = statusParam.split(",").map((s) => s.trim()) as TaskCenterStatus[];
+  }
+
+  const items = await fetchTaskCenterClaimsQueue({
+    organizationId: scope.organizationId,
+    storeId: scope.storeId,
+    status,
+    limit,
   });
 
   return {
