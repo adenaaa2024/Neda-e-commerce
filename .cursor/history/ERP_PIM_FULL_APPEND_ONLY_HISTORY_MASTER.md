@@ -240607,3 +240607,40 @@ NOTE: the script's emitted `NEXT_PROMPT` ("OPERATOR-ACTION — gates blocked") i
 ### Files
 - `scripts/phase-amazon-live-source-sync-resume-and-complete-v1.ts` (re-run; unchanged) + memory quartet + this history.
 - Report: `.cursor/audit-reports/phase-amazon-live-source-sync-resume-and-complete-v1/20260624T030733Z/`
+
+---
+
+## 20260624T211721Z — PHASE-7A2-TASK-CENTER-STAGING-EXECUTE-AND-MEMORY-UPDATE
+
+**Mode:** staging execute + memory/history update only @ STAGING `eiqfaapyumhixxoeltgu`. Branch `feature/organization-task-management`. **NO production touch** (live `kxsvedvpjldygtdbylsy` blocked in guard), **NO UI change, NO /task-center/claims wiring, NO scanner/claims/imports/automation/claim-generation logic change, NO data seed, NO secrets**.
+
+### Context
+Follows the read-only verify (`20260624T210605Z`) which confirmed: all 4 Task Center tables exist on staging with 0 rows, `groups.group_type` + `groups.parent_group_id` present, RLS correct, and `module_link_type`/`module_context`/`ai_summary` MISSING. Option A (strictly additive) approved.
+
+### What ran & outcome
+- Created approval-gated staging execute script `scripts/phase7a2-task-center-additive-reconcile-staging-execute.ts` (mirrors `phase7a-task-center-schema-staging-execute.ts`: staging-ref guard, original-ref block, prints ref never secrets, dry-run default, requires `APPROVED_STAGING_APPLY_V7A2=true` + `--apply`, executes exactly the one migration file, no seed).
+- Dry-run confirmed before-state (3 columns/index/check all absent, row count 0).
+- **APPLIED** `supabase/migrations/20260920120000_phase7a2_task_center_additive_module_link_context_ai_summary.sql` to staging with approval flag -> `apply_result=PASS`.
+- Added to `public.task_items`: `module_link_type text NULL` (+ CHECK `task_items_module_link_type_check` allowing claim_candidate|claim_case|claim_review_work_item|scanner_review|import_error|automation_run|manual_task, nullable), `module_context jsonb NOT NULL DEFAULT '{}'`, `ai_summary jsonb NOT NULL DEFAULT '{}'`; index `task_items_organization_module_link_type_idx (organization_id, module_link_type)`. Conservative no-invent backfill = 0 rows (task_items empty).
+- Preserved (NOT renamed/dropped): `source_module`, `source_entity_type`, `source_entity_id`, `source_snapshot`, `metadata`.
+
+### Verification after apply (`20260624T211728Z`)
+- module_link_type / module_context / ai_summary columns = **present**; `task_items_organization_module_link_type_idx` = **present**; `task_items_module_link_type_check` = **present**.
+- RLS still ENABLED on all 4 task tables (service_role ALL + single authenticated org-scoped SELECT; children EXISTS join). `task_items` row count still **0**.
+- Evidence: apply `.cursor/audit-reports/phase7a2-task-center-additive-reconcile-staging-apply/20260624T211721Z/apply_result.json`; verify `.cursor/audit-reports/phase7a-task-center-additive-reconcile-verify/20260624T211728Z/results.json`.
+
+### Org/team model
+- **No separate teams table.** Groups remain the team model via `groups.group_type='team'`. Task Center claims queue can use `module_link_type` after UI wiring (deferred). `fetchTaskCenterClaimsQueue()` prepared (transition-aware: prefers module_link_type, falls back to legacy `source_module='claims'`) but NOT called from any page yet.
+
+### Build / smoke
+- Prior-step build (`npm run build`) exit 0 (TS contract additions: `lib/task-center/task-center-schema-contract.ts`, `task-center-read-model.ts`). This step changed only scripts + memory; no app/source change.
+
+### Verdicts
+- `production_touched = no` · `migration_applied = yes` · `rls_still_pass = yes`.
+- `SAFE_FOR_NEDA_UI_REAL_DB = yes` (new columns live on staging; read as null/`{}` until populated).
+- `SAFE_TO_PUSH = yes`.
+- NEXT: wire `/task-center/claims` to `fetchTaskCenterClaimsQueue()` + surface `module_context.deep_link`/`entity_label` chips (follow-up UI phase); extend group surfaces (`access-actions.ts`, `role-group-catalog-client.tsx`) for `group_type`/`parent_group_id`.
+
+### Files
+- `scripts/phase7a2-task-center-additive-reconcile-staging-execute.ts` (new), `scripts/phase7a-task-center-additive-reconcile-verify.ts` (new, prior step) + memory quartet + this history.
+- Migration `supabase/migrations/20260920120000_phase7a2_task_center_additive_module_link_context_ai_summary.sql` (+ rollback) applied on staging.

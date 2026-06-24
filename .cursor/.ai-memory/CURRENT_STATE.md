@@ -252,6 +252,7 @@ Prior: `phase-claim-reference-materialization-execute-v1` `20260619T083000Z` **P
 |------|--------|
 | **Schema V3 approval** | **APPROVED** — Maysam sign-off on task-org-schema-v3 pack |
 | **Phase 7A staging apply** | **APPLIED** `20260612T024718Z` @ `eiqfaapyumhixxoeltgu` — `task_items`, `task_comments`, `task_watchers`, `task_activity_log`; `groups.group_type` + `parent_group_id` |
+| **Phase 7A2 additive reconcile (Option A)** | **APPLIED** `20260624T211721Z` @ `eiqfaapyumhixxoeltgu` — additive `task_items.module_link_type` (nullable + CHECK: claim_candidate/claim_case/claim_review_work_item/scanner_review/import_error/automation_run/manual_task), `module_context jsonb`, `ai_summary jsonb`; index `task_items_organization_module_link_type_idx`. **source_module/source_entity_type/source_entity_id/source_snapshot/metadata preserved** (not renamed/dropped). Backfill no-op (0 rows). RLS still PASS; row count 0. **No separate teams table** — team = `groups.group_type='team'`. Claims queue may use `module_link_type` after UI wiring. **No production touched.** Verify `phase7a-task-center-additive-reconcile-verify/20260624T211728Z/`; apply `phase7a2-task-center-additive-reconcile-staging-apply/20260624T211721Z/` |
 | **RLS hard gate** | **PASS** — service_role ALL; authenticated SELECT only; child EXISTS join; cross-org test PASS |
 | **Seeded tasks** | **0** — no demo/fake tasks |
 | **Scanner task bridge** | **DEFERRED** — no scanner code touched |

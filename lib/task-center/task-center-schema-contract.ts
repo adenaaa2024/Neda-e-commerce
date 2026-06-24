@@ -48,6 +48,50 @@ export const TASK_CENTER_SOURCE_MODULE_LABELS: Record<TaskCenterSourceModule, st
   platform: "Admin",
 };
 
+/**
+ * UI/queue-facing module link discriminator (Phase 7A2 additive reconcile).
+ * DB CHECK constraint on task_items.module_link_type — nullable.
+ * Distinct from source_module: source_* is the low-level polymorphic identity,
+ * module_link_type is the UI/queue contract surface.
+ */
+export const TASK_CENTER_MODULE_LINK_TYPES = [
+  "claim_candidate",
+  "claim_case",
+  "claim_review_work_item",
+  "scanner_review",
+  "import_error",
+  "automation_run",
+  "manual_task",
+] as const;
+
+export type TaskCenterModuleLinkType = (typeof TASK_CENTER_MODULE_LINK_TYPES)[number];
+
+/** The /task-center/claims queue reads task_items by these link types only — no claim-table joins. */
+export const TASK_CENTER_CLAIMS_QUEUE_MODULE_LINK_TYPES = [
+  "claim_candidate",
+  "claim_case",
+  "claim_review_work_item",
+] as const satisfies readonly TaskCenterModuleLinkType[];
+
+/** UI link-chip payload shape — assistive context, never source of truth. */
+export type TaskCenterModuleContext = {
+  deep_link?: string;
+  entity_label?: string;
+  source_module?: string;
+  summary?: string;
+  [key: string]: unknown;
+};
+
+/** Assistive AI summary — never authoritative. */
+export type TaskCenterAiSummary = {
+  summary?: string;
+  confidence?: "low" | "medium" | "high";
+  generated_at?: string;
+  generated_by?: string;
+  source_fields?: string[];
+  [key: string]: unknown;
+};
+
 export const TASK_CENTER_GROUP_TYPES = [
   "access_group",
   "team",
@@ -99,6 +143,10 @@ export type TaskCenterTaskItemRow = {
   source_entity_type: string | null;
   source_entity_id: string | null;
   source_snapshot: Record<string, unknown>;
+  /** Phase 7A2 additive — UI/queue contract surface. Nullable. */
+  module_link_type: TaskCenterModuleLinkType | null;
+  module_context: TaskCenterModuleContext;
+  ai_summary: TaskCenterAiSummary;
   assigned_user_id: string | null;
   assigned_group_id: string | null;
   created_by: string | null;

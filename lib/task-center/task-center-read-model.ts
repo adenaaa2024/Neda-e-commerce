@@ -6,10 +6,14 @@ import { supabaseServer } from "@/lib/supabase-server";
 
 import {
   TASK_CENTER_ACTIVE_STATUSES,
+  TASK_CENTER_CLAIMS_QUEUE_MODULE_LINK_TYPES,
   TASK_CENTER_SOURCE_MODULE_LABELS,
   TASK_CENTER_SOURCE_MODULES,
+  type TaskCenterAiSummary,
   type TaskCenterGroupRow,
   type TaskCenterGroupType,
+  type TaskCenterModuleContext,
+  type TaskCenterModuleLinkType,
   type TaskCenterPriority,
   type TaskCenterSourceModule,
   type TaskCenterStatus,
@@ -49,6 +53,16 @@ function mapTaskRow(raw: Record<string, unknown>): TaskCenterTaskItemRow {
     source_snapshot:
       raw.source_snapshot && typeof raw.source_snapshot === "object" && !Array.isArray(raw.source_snapshot)
         ? (raw.source_snapshot as Record<string, unknown>)
+        : {},
+    module_link_type:
+      raw.module_link_type != null ? (String(raw.module_link_type) as TaskCenterModuleLinkType) : null,
+    module_context:
+      raw.module_context && typeof raw.module_context === "object" && !Array.isArray(raw.module_context)
+        ? (raw.module_context as TaskCenterModuleContext)
+        : {},
+    ai_summary:
+      raw.ai_summary && typeof raw.ai_summary === "object" && !Array.isArray(raw.ai_summary)
+        ? (raw.ai_summary as TaskCenterAiSummary)
         : {},
     assigned_user_id: raw.assigned_user_id != null ? String(raw.assigned_user_id) : null,
     assigned_group_id: raw.assigned_group_id != null ? String(raw.assigned_group_id) : null,
@@ -313,6 +327,53 @@ export async function fetchTaskCenterTaskById(
   if (!data) return null;
   const [item] = await enrichTaskListItems([mapTaskRow(data as Record<string, unknown>)]);
   return item ?? null;
+}
+
+/**
+ * Claims queue read for /task-center/claims.
+ *
+ * Reads task_items ONLY — no joins to claim tables from the Task Center layer.
+ * Transition-aware (Phase 7A2): prefers module_link_type, and keeps legacy
+ * source_module='claims' rows visible until they are backfilled.
+ *
+ * NOTE: requires the Phase 7A2 additive migration (module_link_type column).
+ * Until that migration is applied this query references a non-existent column;
+ * it is intentionally not wired into any active page yet.
+ */
+export async function fetchTaskCenterClaimsQueue(filters: {
+  organizationId: string;
+  storeId: string | null;
+  status?: TaskCenterStatus | TaskCenterStatus[];
+  limit?: number;
+}): Promise<TaskCenterTaskListItem[]> {
+  const limit = filters.limit ?? 50;
+  const claimLinkTypes = [...TASK_CENTER_CLAIMS_QUEUE_MODULE_LINK_TYPES].join(",");
+
+  let q = supabaseServer
+    .from("task_items")
+    .select("*")
+    .eq("organization_id", filters.organizationId)
+    .is("deleted_at", null)
+    // Prefer module_link_type; fall back to legacy source_module='claims' rows.
+    .or(`module_link_type.in.(${claimLinkTypes}),source_module.eq.claims`);
+
+  if (filters.storeId) q = q.eq("store_id", filters.storeId);
+
+  if (filters.status) {
+    const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
+    q = q.in("status", statuses);
+  } else {
+    q = q.in("status", ACTIVE);
+  }
+
+  q = q
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return enrichTaskListItems((data ?? []).map((r) => mapTaskRow(r as Record<string, unknown>)));
 }
 
 export async function fetchTaskCenterGroups(args: {
