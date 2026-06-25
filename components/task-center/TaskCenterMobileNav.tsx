@@ -53,12 +53,12 @@ export function TaskCenterMobileNav() {
             onClick={() => setMoreOpen(false)}
           />
           <div className={`${TASK_CENTER_CARD_CLASS} absolute bottom-16 left-4 right-4 p-3 shadow-xl`}>
-            <p className="mb-2 text-xs font-bold uppercase opacity-60">More</p>
+            <p className="task-center-section-label mb-2 text-xs font-bold uppercase">More</p>
             <div className="flex flex-col gap-1">
               <Link
                 href={TASK_CENTER_ROUTES.claims}
                 title="Claim review work linked from the Claims module."
-                className="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium"
+                className="task-center-mobile-nav__more-link min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium transition"
                 onClick={() => setMoreOpen(false)}
               >
                 Claims Queue
@@ -66,7 +66,7 @@ export function TaskCenterMobileNav() {
               <Link
                 href={TASK_CENTER_ROUTES.sources}
                 title="Tasks grouped by the module or workflow that created them."
-                className="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium"
+                className="task-center-mobile-nav__more-link min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium transition"
                 onClick={() => setMoreOpen(false)}
               >
                 Source Modules
@@ -74,7 +74,7 @@ export function TaskCenterMobileNav() {
               <Link
                 href={TASK_CENTER_ROUTES.org}
                 title="Read-only organization structure preview for task routing and visibility."
-                className="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium"
+                className="task-center-mobile-nav__more-link min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium transition"
                 onClick={() => setMoreOpen(false)}
               >
                 Org Structure
@@ -85,7 +85,7 @@ export function TaskCenterMobileNav() {
       ) : null}
 
       <nav
-        className="fixed bottom-0 left-0 right-0 z-[300] flex border-t border-black/10 bg-inherit/95 backdrop-blur-md dark:border-white/10 lg:hidden"
+        className="task-center-mobile-nav fixed bottom-0 left-0 right-0 z-[300] flex border-t backdrop-blur-md lg:hidden"
         aria-label="Task Center mobile"
       >
         {PRIMARY.map((item) => {
@@ -96,8 +96,8 @@ export function TaskCenterMobileNav() {
               key={item.href}
               href={item.href}
               title={item.title}
-              className={`flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold ${
-                active ? "text-teal-600 dark:text-teal-300" : "opacity-70"
+              className={`task-center-mobile-nav__link flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition ${
+                active ? "task-center-mobile-nav__link--active" : ""
               }`}
             >
               <Icon className="h-5 w-5" aria-hidden />
@@ -107,7 +107,7 @@ export function TaskCenterMobileNav() {
         })}
         <button
           type="button"
-          className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold opacity-70"
+          className="task-center-mobile-nav__link flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] font-semibold transition"
           onClick={() => setMoreOpen(true)}
         >
           <MoreHorizontal className="h-5 w-5" aria-hidden />

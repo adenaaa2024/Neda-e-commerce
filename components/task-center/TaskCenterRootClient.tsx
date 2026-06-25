@@ -119,7 +119,7 @@ export function TaskCenterRootClient({
 
 export function TaskCenterLoading() {
   return (
-    <div className="flex items-center gap-2 py-12 text-sm opacity-70">
+    <div className="task-center-text-muted flex items-center gap-2 py-12 text-sm">
       <Loader2 className="h-4 w-4 animate-spin" /> Loading Task Center…
     </div>
   );

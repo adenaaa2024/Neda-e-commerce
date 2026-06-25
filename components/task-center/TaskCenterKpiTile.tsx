@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { TASK_CENTER_CARD_CLASS, TASK_CENTER_KPI_CARD, TASK_CENTER_KPI_GRID } from "./task-center-ui";
+import { TASK_CENTER_CARD_CLASS, TASK_CENTER_KPI_CARD, TASK_CENTER_KPI_GRID, TASK_CENTER_MUTED } from "./task-center-ui";
 
 export function TaskCenterKpiTile({
   label,
@@ -22,7 +22,7 @@ export function TaskCenterKpiTile({
         tone === "danger" ? "ring-1 ring-red-500/20" : tone === "warn" ? "ring-1 ring-amber-500/20" : ""
       }`}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-60">{label}</p>
+      <p className={`text-[11px] font-semibold uppercase tracking-wide ${TASK_CENTER_MUTED}`}>{label}</p>
       <p className="mt-2 text-2xl font-bold tabular-nums">{count}</p>
     </Link>
   );
@@ -41,7 +41,7 @@ export function TaskCenterSourceSummaryTiles({
           href={row.href}
           className={`${TASK_CENTER_CARD_CLASS} p-3 text-sm hover:shadow-md`}
         >
-          <p className="text-xs font-semibold uppercase opacity-60">{row.label}</p>
+          <p className={`text-xs font-semibold uppercase ${TASK_CENTER_MUTED}`}>{row.label}</p>
           <p className="mt-1 text-xl font-bold tabular-nums">{row.open_count}</p>
         </Link>
       ))}

@@ -13,7 +13,7 @@ import { TaskCenterPhaseNotice } from "./TaskCenterPhaseNotice";
 import { TaskCenterDueBadge } from "./TaskCenterDueBadge";
 import { TaskCenterPriorityBadge } from "./TaskCenterPriorityBadge";
 import { TaskCenterStatusBadge } from "./TaskCenterStatusBadge";
-import { TASK_CENTER_CARD_CLASS, TASK_CENTER_PAGE_CLASS } from "./task-center-ui";
+import { TASK_CENTER_CARD_CLASS, TASK_CENTER_PAGE_CLASS, TASK_CENTER_SUBTITLE, TASK_CENTER_CHIP, TASK_CENTER_MUTED } from "./task-center-ui";
 
 const EMPTY_TITLE = "No claim tasks yet";
 const EMPTY_DESCRIPTION =
@@ -45,7 +45,7 @@ function ClaimLinkChip({ chip }: { chip: LinkChip | null }) {
   if (!chip) {
     return (
       <span
-        className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium opacity-50"
+        className={`inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-0.5 text-[11px] font-medium ${TASK_CENTER_MUTED}`}
         title="This task has no linked entity context."
       >
         <Link2 className="h-3 w-3" aria-hidden /> No linked entity
@@ -53,12 +53,11 @@ function ClaimLinkChip({ chip }: { chip: LinkChip | null }) {
     );
   }
 
-  const chipClass =
-    "inline-flex max-w-full items-center gap-1 rounded-md bg-teal-500/10 px-2 py-0.5 text-[11px] font-semibold";
+  const chipClass = TASK_CENTER_CHIP;
 
   if (!chip.href) {
     return (
-      <span className={`${chipClass} opacity-80`}>
+      <span className={chipClass}>
         <LinkIcon className="h-3 w-3 shrink-0" aria-hidden />
         <span className="truncate">{chip.label}</span>
       </span>
@@ -72,7 +71,7 @@ function ClaimLinkChip({ chip }: { chip: LinkChip | null }) {
         href={chip.href}
         target="_blank"
         rel="noopener noreferrer"
-        className={`${chipClass} hover:bg-teal-500/20`}
+        className={chipClass}
       >
         <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
         <span className="truncate">{chip.label}</span>
@@ -81,7 +80,7 @@ function ClaimLinkChip({ chip }: { chip: LinkChip | null }) {
   }
 
   return (
-    <Link href={chip.href} className={`${chipClass} hover:bg-teal-500/20`}>
+    <Link href={chip.href} className={chipClass}>
       <LinkIcon className="h-3 w-3 shrink-0" aria-hidden />
       <span className="truncate">{chip.label}</span>
     </Link>
@@ -108,7 +107,7 @@ function ClaimTaskCard({ task }: { task: TaskCenterTaskListItem }) {
         {task.title}
       </Link>
 
-      <p className="mt-1 text-xs opacity-60">
+      <p className={`mt-1 text-xs ${TASK_CENTER_MUTED}`}>
         {assignee}
         {task.store_label ? ` · ${task.store_label}` : ""}
       </p>
@@ -118,12 +117,12 @@ function ClaimTaskCard({ task }: { task: TaskCenterTaskListItem }) {
       </div>
 
       {aiSummary ? (
-        <div className="mt-3 rounded-lg border border-violet-400/30 bg-violet-500/5 p-3">
-          <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-300">
+        <div className="task-center-ai-panel mt-3 rounded-lg border p-3">
+          <div className="task-center-ai-panel__label flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide">
             <Sparkles className="h-3.5 w-3.5" aria-hidden /> AI Summary
           </div>
-          <p className="mt-1.5 text-sm opacity-90">{aiSummary}</p>
-          <p className="mt-1.5 text-[11px] italic opacity-55">{AI_DISCLAIMER}</p>
+          <p className="task-center-text-secondary mt-1.5 text-sm">{aiSummary}</p>
+          <p className={`mt-1.5 text-[11px] italic ${TASK_CENTER_MUTED}`}>{AI_DISCLAIMER}</p>
         </div>
       ) : null}
     </div>
@@ -159,7 +158,7 @@ export function TaskCenterClaimsQueueView() {
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
         <h1 className="text-xl font-bold tracking-tight">Claims Queue</h1>
-        <p className="mt-1 text-sm opacity-70">Claim review work linked from the Claims module.</p>
+        <p className={TASK_CENTER_SUBTITLE}>Claim review work linked from the Claims module.</p>
       </header>
 
       {loading ? <TaskCenterLoading /> : null}

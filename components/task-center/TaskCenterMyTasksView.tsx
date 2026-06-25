@@ -13,7 +13,7 @@ import {
 import { useTaskCenter, TaskCenterLoading } from "./TaskCenterRootClient";
 import { TaskCenterEmptyState } from "./TaskCenterEmptyState";
 import { TaskCenterTaskList } from "./TaskCenterTaskList";
-import { TASK_CENTER_PAGE_CLASS } from "./task-center-ui";
+import { TASK_CENTER_PAGE_CLASS, TASK_CENTER_SUBTITLE, TASK_CENTER_TOGGLE, TASK_CENTER_TOGGLE_ACTIVE, TASK_CENTER_SELECT } from "./task-center-ui";
 
 export function TaskCenterMyTasksView() {
   const { fetchJson, userId, storeId } = useTaskCenter();
@@ -64,19 +64,19 @@ export function TaskCenterMyTasksView() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">My Tasks</h1>
-          <p className="mt-1 text-sm opacity-70">Tasks assigned directly to you.</p>
+          <p className={TASK_CENTER_SUBTITLE}>Tasks assigned directly to you.</p>
         </div>
         <div className="flex gap-2">
           <button
             type="button"
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === "cards" ? "bg-teal-500/15" : "opacity-60"}`}
+            className={view === "cards" ? TASK_CENTER_TOGGLE_ACTIVE : TASK_CENTER_TOGGLE}
             onClick={() => setView("cards")}
           >
             Cards
           </button>
           <button
             type="button"
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${view === "table" ? "bg-teal-500/15" : "opacity-60"}`}
+            className={view === "table" ? TASK_CENTER_TOGGLE_ACTIVE : TASK_CENTER_TOGGLE}
             onClick={() => setView("table")}
           >
             Table
@@ -86,7 +86,7 @@ export function TaskCenterMyTasksView() {
 
       <div className="flex flex-wrap gap-2">
         <select
-          className="rounded-lg border bg-transparent px-2 py-1.5 text-xs"
+          className={TASK_CENTER_SELECT}
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
         >
@@ -98,7 +98,7 @@ export function TaskCenterMyTasksView() {
           ))}
         </select>
         <select
-          className="rounded-lg border bg-transparent px-2 py-1.5 text-xs"
+          className={TASK_CENTER_SELECT}
           value={priorityFilter}
           onChange={(e) => setPriorityFilter(e.target.value)}
         >
@@ -110,7 +110,7 @@ export function TaskCenterMyTasksView() {
           ))}
         </select>
         <select
-          className="rounded-lg border bg-transparent px-2 py-1.5 text-xs"
+          className={TASK_CENTER_SELECT}
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
         >

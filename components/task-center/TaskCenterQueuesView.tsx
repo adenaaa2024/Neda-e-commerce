@@ -9,7 +9,7 @@ import { TASK_CENTER_PLATFORM_ACCESS_HREF } from "@/lib/task-center/task-center-
 import { useTaskCenter, TaskCenterLoading } from "./TaskCenterRootClient";
 import { TaskCenterEmptyState } from "./TaskCenterEmptyState";
 import { TaskCenterPhaseNotice } from "./TaskCenterPhaseNotice";
-import { TASK_CENTER_CARD_CLASS, TASK_CENTER_PAGE_CLASS } from "./task-center-ui";
+import { TASK_CENTER_CARD_CLASS, TASK_CENTER_PAGE_CLASS, TASK_CENTER_SUBTITLE, TASK_CENTER_TYPE_BADGE, TASK_CENTER_MUTED, TASK_CENTER_LINK, TASK_CENTER_SELECT_LG } from "./task-center-ui";
 
 export function TaskCenterQueuesView() {
   const { fetchJson, storeId } = useTaskCenter();
@@ -47,12 +47,12 @@ export function TaskCenterQueuesView() {
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
         <h1 className="text-xl font-bold tracking-tight">Team Queues</h1>
-        <p className="mt-1 text-sm opacity-70">Tasks grouped by team or access group.</p>
+        <p className={TASK_CENTER_SUBTITLE}>Tasks grouped by team or access group.</p>
       </header>
 
       <div className="flex flex-wrap gap-2">
         <select
-          className="min-h-[44px] rounded-lg border bg-transparent px-3 text-sm"
+          className={TASK_CENTER_SELECT_LG}
           value={selected?.id ?? ""}
           onChange={(e) => setSelectedGroupId(e.target.value)}
         >
@@ -75,16 +75,16 @@ export function TaskCenterQueuesView() {
             return (
               <div key={g.id} className={`${TASK_CENTER_CARD_CLASS} p-4`}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-md bg-teal-500/10 px-2 py-0.5 text-[11px] font-semibold">
+                  <span className={TASK_CENTER_TYPE_BADGE}>
                     {TASK_CENTER_GROUP_TYPE_LABELS[g.group_type]}
                   </span>
                 </div>
                 <p className="mt-2 font-semibold">{g.name}</p>
-                <p className="mt-1 text-xs opacity-60">{g.key}</p>
+                <p className={`mt-1 text-xs ${TASK_CENTER_MUTED}`}>{g.key}</p>
                 <p className="mt-3 text-sm tabular-nums">
                   <span className="font-bold">{treeNode?.open_task_count ?? 0}</span> open tasks
                 </p>
-                <p className="text-xs opacity-60">{treeNode?.member_count ?? 0} members</p>
+                <p className={`text-xs ${TASK_CENTER_MUTED}`}>{treeNode?.member_count ?? 0} members</p>
               </div>
             );
           })}
@@ -92,9 +92,9 @@ export function TaskCenterQueuesView() {
       )}
 
       <TaskCenterPhaseNotice variant="write" />
-      <p className="text-xs opacity-60">
+      <p className={`text-xs ${TASK_CENTER_MUTED}`}>
         Manage groups in{" "}
-        <a href={TASK_CENTER_PLATFORM_ACCESS_HREF} className="font-semibold underline">
+        <a href={TASK_CENTER_PLATFORM_ACCESS_HREF} className={TASK_CENTER_LINK}>
           Platform Access
         </a>
         .

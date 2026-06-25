@@ -21,12 +21,21 @@ import {
 
 import { useTaskCenter, TaskCenterLoading } from "./TaskCenterRootClient";
 import { TaskCenterPhaseNotice } from "./TaskCenterPhaseNotice";
-import { TASK_CENTER_CARD_CLASS, TASK_CENTER_PAGE_CLASS, taskCenterBadgeTone } from "./task-center-ui";
+import {
+  TASK_CENTER_CARD_CLASS,
+  TASK_CENTER_CTA,
+  TASK_CENTER_MUTED,
+  TASK_CENTER_PAGE_CLASS,
+  TASK_CENTER_READONLY_BANNER,
+  TASK_CENTER_STAT_PILL,
+  TASK_CENTER_SUBTITLE,
+  taskCenterBadgeTone,
+} from "./task-center-ui";
 
 function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-white/5 bg-white/5 px-3 py-2">
-      <p className="text-[11px] font-semibold uppercase tracking-wide opacity-60">{label}</p>
+    <div className={TASK_CENTER_STAT_PILL}>
+      <p className={`text-[11px] font-semibold uppercase tracking-wide ${TASK_CENTER_MUTED}`}>{label}</p>
       <p className="mt-0.5 text-lg font-bold tabular-nums">{value}</p>
     </div>
   );
@@ -54,17 +63,17 @@ function GroupCard({
             <span className="min-w-0 break-words font-semibold">{node.name}</span>
           </div>
 
-          <p className="mt-1 break-all text-xs opacity-60">{node.key}</p>
+          <p className={`mt-1 break-all text-xs ${TASK_CENTER_MUTED}`}>{node.key}</p>
 
           {parentName ? (
-            <p className="mt-1 text-xs opacity-70">
+            <p className="task-center-text-secondary mt-1 text-xs">
               Parent: <span className="font-medium">{parentName}</span>
             </p>
           ) : null}
 
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs opacity-80">
+          <div className="task-center-text-secondary mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
             <span className="inline-flex items-center gap-1">
-              <Users className="h-3.5 w-3.5 opacity-70" aria-hidden />
+              <Users className={`h-3.5 w-3.5 ${TASK_CENTER_MUTED}`} aria-hidden />
               {node.member_count} member{node.member_count === 1 ? "" : "s"}
             </span>
             <span className="tabular-nums">
@@ -72,7 +81,7 @@ function GroupCard({
             </span>
           </div>
 
-          <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-snug opacity-60">
+          <p className={`mt-2 flex items-start gap-1.5 text-[11px] leading-snug ${TASK_CENTER_MUTED}`}>
             <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
             {TASK_CENTER_ORG_ASSIGNMENT_VISIBILITY_NOTE}
           </p>
@@ -145,27 +154,24 @@ export function TaskCenterOrgView() {
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
         <h1 className="text-xl font-bold tracking-tight">Org Structure</h1>
-        <p className="mt-1 text-sm opacity-70">
+        <p className={TASK_CENTER_SUBTITLE}>
           Read-only organization structure preview for task routing and visibility.
         </p>
       </header>
 
       {/* Read-only notice */}
-      <div
-        className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-xs leading-snug"
-        role="note"
-      >
-        <Info className="mt-0.5 h-4 w-4 shrink-0 opacity-70" aria-hidden />
-        <p className="opacity-85">{TASK_CENTER_ORG_READONLY_NOTICE}</p>
+      <div className={TASK_CENTER_READONLY_BANNER} role="note">
+        <Info className={`mt-0.5 h-4 w-4 shrink-0 ${TASK_CENTER_MUTED}`} aria-hidden />
+        <p>{TASK_CENTER_ORG_READONLY_NOTICE}</p>
       </div>
 
       {/* Organization root card */}
       <section className={`${TASK_CENTER_CARD_CLASS} p-4 sm:p-5`}>
         <div className="flex items-center gap-2">
-          <Building2 className="h-5 w-5 shrink-0 opacity-70" aria-hidden />
+          <Building2 className={`h-5 w-5 shrink-0 ${TASK_CENTER_MUTED}`} aria-hidden />
           <div className="min-w-0">
             <p className="truncate text-base font-bold">Organization</p>
-            <p className="truncate text-xs opacity-70">
+            <p className={`truncate text-xs task-center-text-secondary`}>
               {storeName ? `Store: ${storeName}` : "All stores in scope"}
             </p>
           </div>
@@ -179,11 +185,11 @@ export function TaskCenterOrgView() {
 
       {/* Hierarchy / flat list */}
       <section>
-        <h2 className="mb-2 text-sm font-semibold opacity-80">
+        <h2 className="task-center-text-secondary mb-2 text-sm font-semibold">
           {hasHierarchy ? "Task hierarchy" : "Top-level groups"}
         </h2>
         {data.tree.length === 0 ? (
-          <p className="text-sm opacity-70">No groups in this organization yet.</p>
+          <p className="task-center-text-secondary text-sm">No groups in this organization yet.</p>
         ) : (
           <ul className="space-y-2">
             {data.tree.map((node) => (
@@ -200,11 +206,11 @@ export function TaskCenterOrgView() {
           {TASK_CENTER_ORG_ASSIGNMENT_MODEL.map((row) => (
             <li key={row.role} className="text-xs leading-snug">
               <span className="font-semibold">{row.role}</span>
-              <span className="opacity-75"> — {row.detail}</span>
+              <span className="task-center-text-secondary"> — {row.detail}</span>
             </li>
           ))}
         </ul>
-        <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-snug opacity-60">
+        <p className={`mt-3 flex items-start gap-1.5 text-[11px] leading-snug ${TASK_CENTER_MUTED}`}>
           <Lock className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
           Write actions (assigning, editing, and managing tasks) are disabled until Phase 7B.
         </p>
@@ -213,10 +219,7 @@ export function TaskCenterOrgView() {
       <TaskCenterPhaseNotice variant="write" />
 
       {/* CTA to Platform Access */}
-      <a
-        href={TASK_CENTER_PLATFORM_ACCESS_HREF}
-        className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition hover:shadow-md"
-      >
+      <a href={TASK_CENTER_PLATFORM_ACCESS_HREF} className={TASK_CENTER_CTA}>
         <ExternalLink className="h-4 w-4" aria-hidden />
         Manage groups in Platform Access
       </a>

@@ -21,7 +21,7 @@ const ACTION_LABELS: Record<(typeof TASK_CENTER_DEFERRED_WRITE_ACTIONS)[number],
 
 export function TaskCenterWriteGateFooter({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="space-y-3 border-t border-black/5 pt-4 dark:border-white/10">
+    <div className="space-y-3 border-t border-[#D8D1C2] pt-4 dark:border-[rgba(214,183,110,0.12)]">
       <TaskCenterPhaseNotice compact={compact} variant="write" />
       <div className={`flex flex-wrap gap-2 ${compact ? "" : "pb-2"}`}>
         {(["assign_task", "add_comment", "complete_task"] as const).map((id) => (

@@ -68,7 +68,7 @@ export function TaskCenterCommandBar() {
 
   return (
     <div
-      className="task-center-workflow-bar sticky top-0 z-20 -mx-4 border-b border-black/5 bg-inherit/95 px-4 py-3 backdrop-blur-sm dark:border-white/10 sm:-mx-6 sm:px-6 xl:-mx-8 xl:px-8"
+      className="task-center-workflow-bar sticky top-0 z-20 -mx-4 border-b px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6 xl:-mx-8 xl:px-8"
       role="navigation"
       aria-label="Task Center navigation"
     >
@@ -82,7 +82,7 @@ export function TaskCenterCommandBar() {
               href={step.href}
               title={step.title}
               className={`task-center-workflow-bar__step flex min-h-[44px] shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                active ? "task-center-workflow-bar__step--active" : "opacity-75 hover:opacity-100"
+                active ? "task-center-workflow-bar__step--active" : ""
               }`}
               aria-current={active ? "page" : undefined}
             >

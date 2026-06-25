@@ -11,7 +11,7 @@ import { TaskCenterKpiTile, TaskCenterSourceSummaryTiles, TASK_CENTER_KPI_GRID }
 import { TaskCenterPhaseNotice } from "./TaskCenterPhaseNotice";
 import { TaskCenterTaskList } from "./TaskCenterTaskList";
 import type { TaskCenterTaskListItem } from "@/lib/task-center/task-center-api-contract";
-import { TASK_CENTER_PAGE_CLASS } from "./task-center-ui";
+import { TASK_CENTER_PAGE_CLASS, TASK_CENTER_SECTION_LABEL, TASK_CENTER_SUBTITLE, TASK_CENTER_LINK } from "./task-center-ui";
 
 export function TaskCenterHomeView() {
   const { fetchJson, userId, storeId } = useTaskCenter();
@@ -62,7 +62,7 @@ export function TaskCenterHomeView() {
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Home</h1>
-        <p className="mt-1 text-sm opacity-70">
+        <p className={TASK_CENTER_SUBTITLE}>
           Overview of your task workload across personal, team, source, and claim queues.
         </p>
       </header>
@@ -75,14 +75,14 @@ export function TaskCenterHomeView() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-bold uppercase tracking-wide opacity-60">Source modules</h2>
+        <h2 className={TASK_CENTER_SECTION_LABEL}>Source modules</h2>
         <TaskCenterSourceSummaryTiles rows={sourceRows} />
       </section>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-bold uppercase tracking-wide opacity-60">My open tasks</h2>
-          <a href={TASK_CENTER_ROUTES.my} className="text-xs font-semibold text-teal-700 dark:text-teal-300">
+          <h2 className={TASK_CENTER_SECTION_LABEL}>My open tasks</h2>
+          <a href={TASK_CENTER_ROUTES.my} className={TASK_CENTER_LINK}>
             View all
           </a>
         </div>

@@ -9,7 +9,7 @@ import { TaskCenterDueBadge } from "./TaskCenterDueBadge";
 import { TaskCenterPriorityBadge } from "./TaskCenterPriorityBadge";
 import { TaskCenterSourceBadge } from "./TaskCenterSourceBadge";
 import { TaskCenterStatusBadge } from "./TaskCenterStatusBadge";
-import { TASK_CENTER_CARD_CLASS } from "./task-center-ui";
+import { TASK_CENTER_CARD_CLASS, TASK_CENTER_MUTED } from "./task-center-ui";
 
 export function TaskCenterTaskCard({ task }: { task: TaskCenterTaskListItem }) {
   return (
@@ -28,7 +28,7 @@ export function TaskCenterTaskCard({ task }: { task: TaskCenterTaskListItem }) {
         />
       </div>
       <p className="mt-2 font-semibold leading-snug">{task.title}</p>
-      <p className="mt-1 text-xs opacity-60">
+      <p className={`mt-1 text-xs ${TASK_CENTER_MUTED}`}>
         {task.assigned_user_name ?? task.assigned_group_name ?? "Unassigned"}
         {task.store_label ? ` · ${task.store_label}` : ""}
       </p>
@@ -38,9 +38,9 @@ export function TaskCenterTaskCard({ task }: { task: TaskCenterTaskListItem }) {
 
 export function TaskCenterTaskTable({ tasks }: { tasks: TaskCenterTaskListItem[] }) {
   return (
-    <div className={`${TASK_CENTER_CARD_CLASS} hidden overflow-x-auto md:block`}>
+    <div className={`${TASK_CENTER_CARD_CLASS} task-center-table hidden overflow-x-auto md:block`}>
       <table className="w-full text-left text-sm">
-        <thead className="border-b text-xs uppercase opacity-60">
+        <thead className="border-b text-xs uppercase">
           <tr>
             <th className="px-4 py-3">Task</th>
             <th className="px-4 py-3">Status</th>
@@ -52,7 +52,7 @@ export function TaskCenterTaskTable({ tasks }: { tasks: TaskCenterTaskListItem[]
         </thead>
         <tbody>
           {tasks.map((task) => (
-            <tr key={task.id} className="border-b last:border-0 hover:bg-black/[0.03] dark:hover:bg-white/[0.03]">
+            <tr key={task.id} className="border-b last:border-0">
               <td className="px-4 py-3">
                 <Link href={TASK_CENTER_ROUTES.detail(task.id)} className="font-medium hover:underline">
                   {task.title}
@@ -67,7 +67,7 @@ export function TaskCenterTaskTable({ tasks }: { tasks: TaskCenterTaskListItem[]
               <td className="px-4 py-3">
                 <TaskCenterSourceBadge sourceModule={task.source_module} />
               </td>
-              <td className="px-4 py-3 text-xs opacity-80">
+              <td className={`px-4 py-3 text-xs task-center-text-secondary`}>
                 {task.assigned_user_name ?? task.assigned_group_name ?? "—"}
               </td>
               <td className="px-4 py-3">

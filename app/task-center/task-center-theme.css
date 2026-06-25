@@ -1,5 +1,6 @@
 /**
- * Task Center scoped theme — operations command center (slate / teal accent).
+ * Task Center scoped theme — MENORIX black / gold (light + dark).
+ * Prefix: `.task-center-view`
  */
 
 .task-center-view .task-center-card,
@@ -11,44 +12,402 @@
   transform: scale(0.99);
 }
 
+.task-center-view .task-center-mobile-card {
+  transition: transform 0.15s ease;
+}
+
+/* ── Page shell ── */
+
 html.dark .task-center-view {
-  background: #0a0f14 !important;
-  color: #e6edf3;
+  background: #0b0e12 !important;
+  color: #f7f3ea;
 }
 
 html.light .task-center-view {
-  background: #f0f4f8 !important;
-  color: #0f172a;
+  background: #f3efe6 !important;
+  color: #171a1e;
 }
 
+/* ── Surfaces ── */
+
 html.dark .task-center-view .task-center-card {
-  background: #111820;
-  border-color: rgba(94, 234, 212, 0.12);
+  background: #151a20;
+  border-color: rgba(214, 183, 110, 0.16);
 }
 
 html.light .task-center-view .task-center-card {
   background: #ffffff;
-  border-color: rgba(15, 118, 110, 0.12);
+  border-color: #d8d1c2;
 }
 
 html.dark .task-center-view .task-center-kpi {
-  background: linear-gradient(145deg, #121a24 0%, #0e141c 100%);
-  border-color: rgba(94, 234, 212, 0.15);
+  background: linear-gradient(145deg, #1d242c 0%, #151a20 100%);
+  border-color: rgba(214, 183, 110, 0.18);
 }
 
 html.light .task-center-view .task-center-kpi {
-  background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
-  border-color: rgba(15, 118, 110, 0.14);
+  background: linear-gradient(145deg, #ffffff 0%, #f8f6f1 100%);
+  border-color: #d8d1c2;
+}
+
+html.dark .task-center-view .task-center-card:hover,
+html.dark .task-center-view .task-center-kpi:hover {
+  border-color: rgba(214, 183, 110, 0.28);
+}
+
+html.light .task-center-view .task-center-card:hover,
+html.light .task-center-view .task-center-kpi:hover {
+  border-color: #cfc6b6;
+}
+
+/* ── Command bar / workflow nav ── */
+
+html.dark .task-center-view .task-center-workflow-bar {
+  border-bottom-color: rgba(214, 183, 110, 0.12);
+  background: rgba(11, 14, 18, 0.95);
+}
+
+html.light .task-center-view .task-center-workflow-bar {
+  border-bottom-color: #d8d1c2;
+  background: rgba(243, 239, 230, 0.95);
+}
+
+html.dark .task-center-view .task-center-workflow-bar__step {
+  color: #b8c1cb;
+}
+
+html.light .task-center-view .task-center-workflow-bar__step {
+  color: #4c5661;
+}
+
+html.dark .task-center-view .task-center-workflow-bar__step:hover {
+  color: #f7f3ea;
+  background: rgba(214, 183, 110, 0.08);
+}
+
+html.light .task-center-view .task-center-workflow-bar__step:hover {
+  color: #171a1e;
+  background: rgba(138, 104, 31, 0.06);
 }
 
 .task-center-view .task-center-workflow-bar__step--active {
-  background: rgba(20, 184, 166, 0.15);
-  border: 1px solid rgba(20, 184, 166, 0.35);
+  border: 1px solid transparent;
 }
 
+html.dark .task-center-view .task-center-workflow-bar__step--active {
+  background: rgba(214, 183, 110, 0.15);
+  border-color: rgba(214, 183, 110, 0.35);
+  color: #f1d58a;
+}
+
+html.light .task-center-view .task-center-workflow-bar__step--active {
+  background: #f8f4ea;
+  border-color: rgba(138, 104, 31, 0.25);
+  color: #8a681f;
+}
+
+html.dark .task-center-view .task-center-workflow-bar__step--active svg {
+  color: #d6b76e;
+}
+
+html.light .task-center-view .task-center-workflow-bar__step--active svg {
+  color: #8a681f;
+}
+
+/* ── Mobile nav ── */
+
+html.dark .task-center-view .task-center-mobile-nav {
+  border-top-color: rgba(214, 183, 110, 0.12);
+  background: rgba(11, 14, 18, 0.96);
+}
+
+html.light .task-center-view .task-center-mobile-nav {
+  border-top-color: #d8d1c2;
+  background: rgba(243, 239, 230, 0.96);
+}
+
+html.dark .task-center-view .task-center-mobile-nav__link {
+  color: #7e8894;
+}
+
+html.light .task-center-view .task-center-mobile-nav__link {
+  color: #737c86;
+}
+
+html.dark .task-center-view .task-center-mobile-nav__link--active {
+  color: #f1d58a;
+}
+
+html.light .task-center-view .task-center-mobile-nav__link--active {
+  color: #8a681f;
+}
+
+html.dark .task-center-view .task-center-mobile-nav__more-link {
+  color: #b8c1cb;
+}
+
+html.light .task-center-view .task-center-mobile-nav__more-link {
+  color: #4c5661;
+}
+
+html.dark .task-center-view .task-center-mobile-nav__more-link:hover {
+  background: rgba(214, 183, 110, 0.1);
+  color: #f7f3ea;
+}
+
+html.light .task-center-view .task-center-mobile-nav__more-link:hover {
+  background: #f8f6f1;
+  color: #171a1e;
+}
+
+/* ── Typography helpers ── */
+
+html.dark .task-center-view .task-center-text-secondary {
+  color: #b8c1cb;
+}
+
+html.light .task-center-view .task-center-text-secondary {
+  color: #4c5661;
+}
+
+html.dark .task-center-view .task-center-text-muted {
+  color: #7e8894;
+}
+
+html.light .task-center-view .task-center-text-muted {
+  color: #737c86;
+}
+
+html.dark .task-center-view .task-center-section-label {
+  color: #7e8894;
+}
+
+html.light .task-center-view .task-center-section-label {
+  color: #737c86;
+}
+
+html.dark .task-center-view .task-center-link {
+  color: #d6b76e;
+}
+
+html.light .task-center-view .task-center-link {
+  color: #8a681f;
+}
+
+html.dark .task-center-view .task-center-link:hover {
+  color: #f1d58a;
+}
+
+html.light .task-center-view .task-center-link:hover {
+  color: #b08a3c;
+}
+
+/* ── Toggles / selects ── */
+
+html.dark .task-center-view .task-center-toggle {
+  color: #7e8894;
+}
+
+html.light .task-center-view .task-center-toggle {
+  color: #737c86;
+}
+
+html.dark .task-center-view .task-center-toggle--active {
+  background: rgba(214, 183, 110, 0.15);
+  color: #f1d58a;
+  border: 1px solid rgba(214, 183, 110, 0.3);
+}
+
+html.light .task-center-view .task-center-toggle--active {
+  background: #f8f4ea;
+  color: #8a681f;
+  border: 1px solid rgba(138, 104, 31, 0.22);
+}
+
+html.dark .task-center-view .task-center-select {
+  background: #151a20;
+  border-color: rgba(214, 183, 110, 0.16);
+  color: #f7f3ea;
+}
+
+html.light .task-center-view .task-center-select {
+  background: #ffffff;
+  border-color: #d8d1c2;
+  color: #171a1e;
+}
+
+/* ── Table ── */
+
+html.dark .task-center-view .task-center-table thead {
+  background: #1d242c;
+  border-bottom-color: rgba(214, 183, 110, 0.12);
+  color: #b8c1cb;
+}
+
+html.light .task-center-view .task-center-table thead {
+  background: #f8f6f1;
+  border-bottom-color: #cfc6b6;
+  color: #4c5661;
+}
+
+html.dark .task-center-view .task-center-table tbody tr {
+  border-bottom-color: rgba(214, 183, 110, 0.08);
+}
+
+html.light .task-center-view .task-center-table tbody tr {
+  border-bottom-color: #e8e2d6;
+}
+
+html.dark .task-center-view .task-center-table tbody tr:hover {
+  background: rgba(214, 183, 110, 0.04);
+}
+
+html.light .task-center-view .task-center-table tbody tr:hover {
+  background: rgba(138, 104, 31, 0.04);
+}
+
+/* ── Phase / alert banners ── */
+
+html.dark .task-center-view .task-center-phase-notice {
+  background: rgba(214, 183, 110, 0.08);
+  border-color: rgba(214, 183, 110, 0.22);
+  color: #b8c1cb;
+}
+
+html.light .task-center-view .task-center-phase-notice {
+  background: #f8f4ea;
+  border-color: rgba(138, 104, 31, 0.2);
+  color: #4c5661;
+}
+
+html.dark .task-center-view .task-center-readonly-banner {
+  background: rgba(214, 183, 110, 0.08);
+  border-color: rgba(214, 183, 110, 0.22);
+  color: #b8c1cb;
+}
+
+html.light .task-center-view .task-center-readonly-banner {
+  background: #f8f4ea;
+  border-color: rgba(138, 104, 31, 0.2);
+  color: #4c5661;
+}
+
+/* ── Stat pills / chips ── */
+
+html.dark .task-center-view .task-center-stat-pill {
+  background: #232c35;
+  border-color: rgba(214, 183, 110, 0.14);
+}
+
+html.light .task-center-view .task-center-stat-pill {
+  background: #f8f6f1;
+  border-color: #d8d1c2;
+}
+
+html.dark .task-center-view .task-center-chip {
+  background: rgba(214, 183, 110, 0.12);
+  color: #f1d58a;
+}
+
+html.light .task-center-view .task-center-chip {
+  background: rgba(138, 104, 31, 0.1);
+  color: #8a681f;
+}
+
+html.dark .task-center-view .task-center-chip:hover {
+  background: rgba(214, 183, 110, 0.2);
+}
+
+html.light .task-center-view .task-center-chip:hover {
+  background: rgba(138, 104, 31, 0.16);
+}
+
+html.dark .task-center-view .task-center-type-badge {
+  background: rgba(214, 183, 110, 0.12);
+  color: #f1d58a;
+}
+
+html.light .task-center-view .task-center-type-badge {
+  background: rgba(138, 104, 31, 0.1);
+  color: #8a681f;
+}
+
+/* ── CTA button ── */
+
+html.dark .task-center-view .task-center-cta {
+  background: #232c35;
+  border-color: rgba(214, 183, 110, 0.28);
+  color: #f1d58a;
+}
+
+html.light .task-center-view .task-center-cta {
+  background: #ffffff;
+  border-color: rgba(138, 104, 31, 0.28);
+  color: #8a681f;
+}
+
+html.dark .task-center-view .task-center-cta:hover {
+  background: rgba(214, 183, 110, 0.12);
+  border-color: rgba(214, 183, 110, 0.4);
+  color: #f7f3ea;
+}
+
+html.light .task-center-view .task-center-cta:hover {
+  background: #f8f4ea;
+  border-color: rgba(138, 104, 31, 0.4);
+  color: #6b4f12;
+}
+
+/* ── Active card ring ── */
+
+html.dark .task-center-view .task-center-card--active {
+  box-shadow: 0 0 0 2px rgba(214, 183, 110, 0.35);
+}
+
+html.light .task-center-view .task-center-card--active {
+  box-shadow: 0 0 0 2px rgba(138, 104, 31, 0.3);
+}
+
+/* ── Empty state ── */
+
+html.dark .task-center-view .task-center-empty-state svg {
+  color: #7e8894;
+}
+
+html.light .task-center-view .task-center-empty-state svg {
+  color: #737c86;
+}
+
+/* ── Org tree ── */
+
+.task-center-view .task-center-tree-node {
+  border-left: 2px solid rgba(214, 183, 110, 0.25);
+}
+
+/* ── Disabled buttons ── */
+
+html.dark .task-center-view .task-center-btn--disabled {
+  border-color: rgba(214, 183, 110, 0.2);
+  color: #7e8894;
+}
+
+html.light .task-center-view .task-center-btn--disabled {
+  border-color: #cfc6b6;
+  color: #737c86;
+}
+
+.task-center-view .task-center-btn--disabled {
+  border: 1px dashed;
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+/* ── Status badges (semantic, gold-aware borders) ── */
+
 html.dark .task-center-view .task-center-badge--open {
-  background: rgba(56, 189, 248, 0.15);
-  color: #7dd3fc;
+  background: rgba(214, 183, 110, 0.12);
+  color: #f1d58a;
 }
 
 html.dark .task-center-view .task-center-badge--blocked {
@@ -67,8 +426,8 @@ html.dark .task-center-view .task-center-badge--scanner {
 }
 
 html.dark .task-center-view .task-center-badge--claims {
-  background: rgba(250, 204, 21, 0.12);
-  color: #fde047;
+  background: rgba(214, 183, 110, 0.14);
+  color: #f1d58a;
 }
 
 html.dark .task-center-view .task-center-badge--product {
@@ -82,8 +441,8 @@ html.dark .task-center-view .task-center-badge--automation {
 }
 
 html.light .task-center-view .task-center-badge--open {
-  background: rgba(14, 165, 233, 0.12);
-  color: #0369a1;
+  background: rgba(138, 104, 31, 0.1);
+  color: #8a681f;
 }
 
 html.light .task-center-view .task-center-badge--blocked {
@@ -96,17 +455,42 @@ html.light .task-center-view .task-center-badge--urgent {
   color: #c2410c;
 }
 
-.task-center-view .task-center-mobile-card {
-  transition: transform 0.15s ease;
+html.light .task-center-view .task-center-badge--scanner {
+  background: rgba(109, 40, 217, 0.08);
+  color: #6d28d9;
 }
 
-.task-center-view .task-center-tree-node {
-  border-left: 2px solid rgba(20, 184, 166, 0.25);
+html.light .task-center-view .task-center-badge--claims {
+  background: rgba(138, 104, 31, 0.1);
+  color: #8a681f;
 }
 
-.task-center-view .task-center-btn--disabled {
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  border-radius: 0.75rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.75rem;
+html.light .task-center-view .task-center-badge--product {
+  background: rgba(5, 150, 105, 0.1);
+  color: #047857;
+}
+
+html.light .task-center-view .task-center-badge--automation {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+}
+
+/* ── AI summary panel (claims) ── */
+
+html.dark .task-center-view .task-center-ai-panel {
+  background: rgba(214, 183, 110, 0.06);
+  border-color: rgba(214, 183, 110, 0.2);
+}
+
+html.light .task-center-view .task-center-ai-panel {
+  background: #f8f4ea;
+  border-color: rgba(138, 104, 31, 0.18);
+}
+
+html.dark .task-center-view .task-center-ai-panel__label {
+  color: #d6b76e;
+}
+
+html.light .task-center-view .task-center-ai-panel__label {
+  color: #8a681f;
 }

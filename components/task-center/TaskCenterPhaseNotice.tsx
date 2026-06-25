@@ -5,6 +5,8 @@ import { Lock } from "lucide-react";
 import { TASK_CENTER_WRITE_PHASE_NOTICE } from "@/lib/task-center/task-center-api-contract";
 import { TASK_CENTER_PHASE_NOTICE_COPY } from "@/lib/task-center/task-center-ui-contract";
 
+import { TASK_CENTER_PHASE_NOTICE_CLASS } from "./task-center-ui";
+
 export function TaskCenterPhaseNotice({
   compact = false,
   variant = "write",
@@ -23,13 +25,11 @@ export function TaskCenterPhaseNotice({
 
   return (
     <div
-      className={`flex items-start gap-2 rounded-xl border border-teal-500/20 bg-teal-500/5 text-xs leading-snug ${
-        compact ? "px-3 py-2" : "px-4 py-3"
-      }`}
+      className={`${TASK_CENTER_PHASE_NOTICE_CLASS} ${compact ? "px-3 py-2" : "px-4 py-3"}`}
       role="note"
     >
-      <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-      <p className="opacity-85">{copy}</p>
+      <Lock className="task-center-text-muted mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+      <p>{copy}</p>
     </div>
   );
 }
