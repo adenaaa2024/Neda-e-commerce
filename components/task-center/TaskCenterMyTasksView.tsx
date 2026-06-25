@@ -64,7 +64,7 @@ export function TaskCenterMyTasksView() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight">My Tasks</h1>
-          <p className="mt-1 text-sm opacity-70">Assigned to you · read-only</p>
+          <p className="mt-1 text-sm opacity-70">Tasks assigned directly to you.</p>
         </div>
         <div className="flex gap-2">
           <button

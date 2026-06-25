@@ -65,8 +65,8 @@ export function TaskCenterSourcesView() {
   return (
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
-        <h1 className="text-xl font-bold tracking-tight">Source Work</h1>
-        <p className="mt-1 text-sm opacity-70">Tasks grouped by origin module · read-only</p>
+        <h1 className="text-xl font-bold tracking-tight">Source Modules</h1>
+        <p className="mt-1 text-sm opacity-70">Tasks grouped by the module or workflow that created them.</p>
       </header>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

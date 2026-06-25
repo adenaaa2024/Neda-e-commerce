@@ -46,8 +46,8 @@ export function TaskCenterQueuesView() {
   return (
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
-        <h1 className="text-xl font-bold tracking-tight">Team / Queue</h1>
-        <p className="mt-1 text-sm opacity-70">Group workload from `groups` + `group_type` · read-only</p>
+        <h1 className="text-xl font-bold tracking-tight">Team Queues</h1>
+        <p className="mt-1 text-sm opacity-70">Tasks grouped by team or access group.</p>
       </header>
 
       <div className="flex flex-wrap gap-2">

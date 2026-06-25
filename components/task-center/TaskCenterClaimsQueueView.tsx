@@ -158,8 +158,8 @@ export function TaskCenterClaimsQueueView() {
   return (
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
-        <h1 className="text-xl font-bold tracking-tight">Claims Task Queue</h1>
-        <p className="mt-1 text-sm opacity-70">Claim review work linked from the Claims module · read-only</p>
+        <h1 className="text-xl font-bold tracking-tight">Claims Queue</h1>
+        <p className="mt-1 text-sm opacity-70">Claim review work linked from the Claims module.</p>
       </header>
 
       {loading ? <TaskCenterLoading /> : null}

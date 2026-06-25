@@ -33,17 +33,27 @@ export const TASK_CENTER_ROUTES = {
 export const TASK_CENTER_COMMAND_NAV: MenorixModuleNavItem[] = [
   { href: TASK_CENTER_ROUTES.home, label: "Home", shortLabel: "Home", exact: true },
   { href: TASK_CENTER_ROUTES.my, label: "My Tasks", shortLabel: "My" },
-  { href: TASK_CENTER_ROUTES.queues, label: "Team / Queue", shortLabel: "Team" },
-  { href: TASK_CENTER_ROUTES.claims, label: "Claims", shortLabel: "Claims" },
-  { href: TASK_CENTER_ROUTES.sources, label: "Source Work", shortLabel: "Sources" },
+  { href: TASK_CENTER_ROUTES.queues, label: "Team Queues", shortLabel: "Teams" },
+  { href: TASK_CENTER_ROUTES.claims, label: "Claims Queue", shortLabel: "Claims" },
+  { href: TASK_CENTER_ROUTES.sources, label: "Source Modules", shortLabel: "Sources" },
   { href: TASK_CENTER_ROUTES.org, label: "Org Structure", shortLabel: "Org" },
 ];
 
 export const TASK_CENTER_MOBILE_BOTTOM: MenorixModuleNavItem[] = [
   { href: TASK_CENTER_ROUTES.home, label: "Home", shortLabel: "Home", exact: true },
   { href: TASK_CENTER_ROUTES.my, label: "My", shortLabel: "My" },
-  { href: TASK_CENTER_ROUTES.queues, label: "Team", shortLabel: "Team" },
+  { href: TASK_CENTER_ROUTES.queues, label: "Teams", shortLabel: "Teams" },
 ];
+
+/** One-line helper copy per Task Center page (UI label contract). */
+export const TASK_CENTER_PAGE_HELPER_COPY = {
+  home: "Overview of your task workload across personal, team, source, and claim queues.",
+  my: "Tasks assigned directly to you.",
+  queues: "Tasks grouped by team or access group.",
+  claims: "Claim review work linked from the Claims module.",
+  sources: "Tasks grouped by the module or workflow that created them.",
+  org: "Read-only organization structure preview for task routing and visibility.",
+} as const;
 
 export type TaskCenterScreenId =
   | "home"

@@ -61,8 +61,10 @@ export function TaskCenterHomeView() {
   return (
     <div className={TASK_CENTER_PAGE_CLASS}>
       <header>
-        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Task Center</h1>
-        <p className="mt-1 text-sm opacity-70">Operations tasks — read-only command home.</p>
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Home</h1>
+        <p className="mt-1 text-sm opacity-70">
+          Overview of your task workload across personal, team, source, and claim queues.
+        </p>
       </header>
 
       <div className={TASK_CENTER_KPI_GRID}>

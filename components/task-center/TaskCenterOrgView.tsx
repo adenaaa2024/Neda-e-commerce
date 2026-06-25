@@ -146,7 +146,7 @@ export function TaskCenterOrgView() {
       <header>
         <h1 className="text-xl font-bold tracking-tight">Org Structure</h1>
         <p className="mt-1 text-sm opacity-70">
-          Task hierarchy across teams, departments, queues, and access groups.
+          Read-only organization structure preview for task routing and visibility.
         </p>
       </header>
 
