@@ -23,6 +23,13 @@ import {
   type OrganizationOptionRow,
   type RoleCatalogRow,
 } from "./access-actions";
+import {
+  GROUP_TYPES,
+  DEFAULT_GROUP_TYPE,
+  normalizeGroupType,
+  type GroupType,
+} from "./access-validation";
+import { TASK_CENTER_ORG_GROUP_TYPE_DISPLAY } from "../../../lib/task-center/task-center-org-display-contract";
 
 const INPUT =
   "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
@@ -39,6 +46,30 @@ function formatTs(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso.trim();
   return d.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+}
+
+const GROUP_TYPE_BADGE_CLASS: Record<GroupType, string> = {
+  access_group:
+    "border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-300",
+  team:
+    "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-700/50 dark:bg-violet-950/40 dark:text-violet-300",
+  department:
+    "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-700/50 dark:bg-sky-950/40 dark:text-sky-300",
+  queue:
+    "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-300",
+};
+
+function GroupTypeBadge({ type }: { type: GroupType }) {
+  return (
+    <span
+      className={[
+        "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        GROUP_TYPE_BADGE_CLASS[type],
+      ].join(" ")}
+    >
+      {TASK_CENTER_ORG_GROUP_TYPE_DISPLAY[type]}
+    </span>
+  );
 }
 
 function RoleGroupCatalogInner() {
@@ -160,6 +191,7 @@ function RoleGroupCatalogInner() {
   const [gName, setGName] = useState("");
   const [gKey, setGKey] = useState("");
   const [gDesc, setGDesc] = useState("");
+  const [gType, setGType] = useState<GroupType>(DEFAULT_GROUP_TYPE);
 
   function openCreateRole() {
     setRName("");
@@ -184,6 +216,7 @@ function RoleGroupCatalogInner() {
     setGName("");
     setGKey("");
     setGDesc("");
+    setGType(DEFAULT_GROUP_TYPE);
     setGroupModal("create");
   }
 
@@ -192,6 +225,7 @@ function RoleGroupCatalogInner() {
     setGName(row.name);
     setGKey(row.key);
     setGDesc(row.description ?? "");
+    setGType(normalizeGroupType(row.group_type));
     setGroupModal(row);
   }
 
@@ -291,6 +325,7 @@ function RoleGroupCatalogInner() {
           name: gName,
           key: gKey,
           description: gDesc,
+          group_type: gType,
         });
         if (!res.ok) {
           showToast(res.error, false);
@@ -302,6 +337,7 @@ function RoleGroupCatalogInner() {
           name: gName,
           key: gKey,
           description: gDesc,
+          group_type: gType,
         });
         if (!res.ok) {
           showToast(res.error, false);
@@ -521,11 +557,13 @@ function RoleGroupCatalogInner() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] table-fixed border-collapse text-sm">
+                <table className="w-full min-w-[920px] table-fixed border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                       <th className="px-3 py-2.5">Name</th>
+                      <th className="w-[130px] px-3 py-2.5">Type</th>
                       <th className="px-3 py-2.5">Key</th>
+                      <th className="px-3 py-2.5">Parent</th>
                       <th className="px-3 py-2.5">Organization</th>
                       <th className="px-3 py-2.5">Description</th>
                       <th className="w-[100px] px-3 py-2.5 text-right">Actions</th>
@@ -534,7 +572,7 @@ function RoleGroupCatalogInner() {
                   <tbody>
                     {groups.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                        <td colSpan={7} className="px-3 py-12 text-center text-sm text-muted-foreground">
                           No groups for this organization.
                         </td>
                       </tr>
@@ -542,7 +580,19 @@ function RoleGroupCatalogInner() {
                       groups.map((row) => (
                         <tr key={row.id} className="border-b border-border last:border-0">
                           <td className="px-3 py-2 align-middle font-medium">{row.name}</td>
+                          <td className="px-3 py-2 align-middle">
+                            <GroupTypeBadge type={row.group_type} />
+                          </td>
                           <td className="px-3 py-2 align-middle font-mono text-xs text-muted-foreground">{row.key}</td>
+                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                            {row.parent_group_id ? (
+                              <span title={row.parent_group_name ?? row.parent_group_id}>
+                                {row.parent_group_name ?? row.parent_group_id}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground/70">Top level</span>
+                            )}
+                          </td>
                           <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
                             {row.organization_name ?? row.organization_id}
                           </td>
@@ -736,6 +786,38 @@ function RoleGroupCatalogInner() {
                   required
                   autoComplete="off"
                 />
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="ng-type">Group type</label>
+                <select
+                  id="ng-type"
+                  className={INPUT}
+                  value={gType}
+                  onChange={(e) => setGType(normalizeGroupType(e.target.value))}
+                >
+                  {GROUP_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {TASK_CENTER_ORG_GROUP_TYPE_DISPLAY[t]}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Teams and departments are used for task routing and organization structure. Access groups are for permission grouping.
+                </p>
+              </div>
+              <div>
+                <label className={LABEL}>Parent group</label>
+                <input
+                  className={INPUT}
+                  value={groupModal !== "create" && groupModal.parent_group_id
+                    ? (groupModal.parent_group_name ?? groupModal.parent_group_id)
+                    : "Top level"}
+                  readOnly
+                  disabled
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Parent group assignment is read-only in this version.
+                </p>
               </div>
               <div>
                 <label className={LABEL} htmlFor="ng-desc">Description</label>

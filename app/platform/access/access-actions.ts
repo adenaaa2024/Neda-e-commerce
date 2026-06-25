@@ -8,6 +8,8 @@ import {
   collectRoleCreateErrors,
   collectRoleUpdateErrors,
   normalizeAccessEntityKey,
+  normalizeGroupType,
+  type GroupType,
 } from "./access-validation";
 import { assertManagePlatformAccess } from "./server-gate";
 
@@ -165,6 +167,9 @@ export type GroupCatalogRow = {
   key: string;
   name: string;
   description: string | null;
+  group_type: GroupType;
+  parent_group_id: string | null;
+  parent_group_name: string | null;
   created_at: string;
 };
 
@@ -180,16 +185,22 @@ export async function listGroupsForOrganizationAccessAction(
   try {
     const { data, error } = await supabaseServer
       .from("groups")
-      .select("id, organization_id, key, name, description, created_at, organizations(name)")
+      .select(
+        "id, organization_id, key, name, description, group_type, parent_group_id, created_at, organizations(name)",
+      )
       .eq("organization_id", oid)
       .order("name", { ascending: true });
     if (error) return { ok: false, error: error.message };
-    const rows: GroupCatalogRow[] = (data ?? []).map((raw) => {
+    const baseRows = (data ?? []).map((raw) => {
       const r = raw as unknown as Record<string, unknown>;
       const orgJoin = splitJoined<{ name?: string | null }>(r.organizations);
       const orgName =
         orgJoin?.name != null && String(orgJoin.name).trim()
           ? String(orgJoin.name).trim()
+          : null;
+      const parentId =
+        r.parent_group_id != null && String(r.parent_group_id).trim()
+          ? String(r.parent_group_id).trim()
           : null;
       return {
         id: String(r.id ?? ""),
@@ -198,9 +209,43 @@ export async function listGroupsForOrganizationAccessAction(
         key: String(r.key ?? "").trim(),
         name: String(r.name ?? "").trim(),
         description: r.description != null ? String(r.description) : null,
+        group_type: normalizeGroupType(r.group_type != null ? String(r.group_type) : null),
+        parent_group_id: parentId,
         created_at: r.created_at != null ? String(r.created_at) : "",
       };
     }).filter((x) => x.id && x.organization_id);
+
+    // Resolve parent group names (parents may live outside the current org filter).
+    const nameByGroupId = new Map<string, string>();
+    for (const row of baseRows) {
+      if (row.name) nameByGroupId.set(row.id, row.name);
+    }
+    const missingParentIds = Array.from(
+      new Set(
+        baseRows
+          .map((x) => x.parent_group_id)
+          .filter((pid): pid is string => Boolean(pid) && !nameByGroupId.has(pid as string)),
+      ),
+    );
+    if (missingParentIds.length) {
+      const { data: parentData, error: parentErr } = await supabaseServer
+        .from("groups")
+        .select("id, name")
+        .in("id", missingParentIds);
+      if (!parentErr) {
+        for (const raw of parentData ?? []) {
+          const p = raw as unknown as Record<string, unknown>;
+          const pid = String(p.id ?? "").trim();
+          const pname = String(p.name ?? "").trim();
+          if (pid) nameByGroupId.set(pid, pname);
+        }
+      }
+    }
+
+    const rows: GroupCatalogRow[] = baseRows.map((x) => ({
+      ...x,
+      parent_group_name: x.parent_group_id ? nameByGroupId.get(x.parent_group_id) ?? null : null,
+    }));
     return { ok: true, rows };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Failed to load groups." };
@@ -307,6 +352,7 @@ export async function createGroupAccessAction(input: {
   name: string;
   key: string;
   description?: string | null;
+  group_type?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string; fieldErrors?: Record<string, string> }> {
   const g = await gate();
   if (!g.ok) {
@@ -322,6 +368,7 @@ export async function createGroupAccessAction(input: {
     input.description != null && String(input.description).trim()
       ? String(input.description).trim().slice(0, 300)
       : null;
+  const groupType = normalizeGroupType(input.group_type);
   try {
     const { data: orgRow, error: orgErr } = await supabaseServer
       .from("organizations")
@@ -337,6 +384,7 @@ export async function createGroupAccessAction(input: {
         key,
         name,
         description,
+        group_type: groupType,
       })
       .select("id")
       .maybeSingle();
@@ -364,6 +412,7 @@ export async function updateGroupAccessAction(
     name: string;
     key: string;
     description?: string | null;
+    group_type?: string | null;
   },
 ): Promise<{ ok: true } | { ok: false; error: string; fieldErrors?: Record<string, string> }> {
   const g = await gate();
@@ -379,10 +428,15 @@ export async function updateGroupAccessAction(
     patch.description != null && String(patch.description).trim()
       ? String(patch.description).trim().slice(0, 300)
       : null;
+  const hasGroupType = patch.group_type != null && String(patch.group_type).trim() !== "";
+  const updatePayload: Record<string, unknown> = { key, name, description };
+  if (hasGroupType) {
+    updatePayload.group_type = normalizeGroupType(patch.group_type);
+  }
   try {
     const { error } = await supabaseServer
       .from("groups")
-      .update({ key, name, description })
+      .update(updatePayload)
       .eq("id", id);
     if (error) {
       if (error.code === "23505") {

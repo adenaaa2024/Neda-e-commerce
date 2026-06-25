@@ -1,6 +1,25 @@
 /** Shared validation for `/platform/access` role & group keys and text fields. */
 
+import {
+  TASK_CENTER_GROUP_TYPES,
+  type TaskCenterGroupType,
+} from "../../../lib/task-center/task-center-schema-contract";
+
 const KEY_PATTERN = /^[a-z0-9_-]{3,50}$/;
+
+/** Re-export the canonical Task Center group-type allow-list to avoid check drift. */
+export const GROUP_TYPES = TASK_CENTER_GROUP_TYPES;
+export type GroupType = TaskCenterGroupType;
+export const DEFAULT_GROUP_TYPE: GroupType = "access_group";
+
+export function validateGroupType(value: string): value is GroupType {
+  return (GROUP_TYPES as readonly string[]).includes(value);
+}
+
+export function normalizeGroupType(raw: string | null | undefined): GroupType {
+  const value = String(raw ?? "").trim();
+  return validateGroupType(value) ? value : DEFAULT_GROUP_TYPE;
+}
 
 export function normalizeAccessEntityKey(raw: string): string {
   return raw
@@ -82,6 +101,7 @@ export function collectGroupCreateErrors(input: {
   name: string;
   key: string;
   description?: string | null;
+  group_type?: string | null;
 }): FieldErrorMap | null {
   const errors: FieldErrorMap = {};
   const oid = input.organization_id.trim();
@@ -92,6 +112,9 @@ export function collectGroupCreateErrors(input: {
   if (ke) errors.key = ke;
   const de = validateDescription(input.description);
   if (de) errors.description = de;
+  if (input.group_type != null && String(input.group_type).trim() && !validateGroupType(String(input.group_type).trim())) {
+    errors.group_type = "Invalid group type.";
+  }
   return Object.keys(errors).length ? errors : null;
 }
 
@@ -99,6 +122,7 @@ export function collectGroupUpdateErrors(input: {
   name: string;
   key: string;
   description?: string | null;
+  group_type?: string | null;
 }): FieldErrorMap | null {
   const errors: FieldErrorMap = {};
   const ne = validateGroupName(input.name);
@@ -107,5 +131,8 @@ export function collectGroupUpdateErrors(input: {
   if (ke) errors.key = ke;
   const de = validateDescription(input.description);
   if (de) errors.description = de;
+  if (input.group_type != null && String(input.group_type).trim() && !validateGroupType(String(input.group_type).trim())) {
+    errors.group_type = "Invalid group type.";
+  }
   return Object.keys(errors).length ? errors : null;
 }
