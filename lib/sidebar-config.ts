@@ -337,6 +337,17 @@ export const MAIN_SIDEBAR: SidebarSection[] = [
             rbac: "canSeeUsers",
             order: 2,
           },
+          {
+            kind: "leaf",
+            id: "people_assignments",
+            label: "People assignments",
+            path: "/settings/people",
+            featureKey: "settings.people_assignments",
+            permissionBase: "settings.people_assignments",
+            icon: "Network",
+            rbac: "canSeeUsers",
+            order: 3,
+          },
         ],
       },
       {
