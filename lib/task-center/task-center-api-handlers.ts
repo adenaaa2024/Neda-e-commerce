@@ -3,6 +3,8 @@ import {
   fetchTaskActivity,
   fetchTaskCenterClaimsQueue,
   fetchTaskCenterGroups,
+  fetchTaskCenterOrgPeople,
+  fetchTaskCenterOrgPeopleDetail,
   fetchTaskCenterSourceSummary,
   fetchTaskCenterSummary,
   fetchTaskCenterTaskById,
@@ -12,6 +14,8 @@ import {
 } from "./task-center-read-model";
 import type {
   TaskCenterGroupsResponse,
+  TaskCenterOrgPeopleDetailResponse,
+  TaskCenterOrgPeopleResponse,
   TaskCenterSourceSummaryResponse,
   TaskCenterSummaryResponse,
   TaskCenterTaskDetailResponse,
@@ -202,4 +206,28 @@ export async function getTaskCenterSourceSummaryPayload(args: {
 }): Promise<TaskCenterSourceSummaryResponse> {
   const rows = await fetchTaskCenterSourceSummary(args);
   return { rows, read_only: true };
+}
+
+export async function getTaskCenterOrgPeoplePayload(args: {
+  organizationId: string;
+}): Promise<TaskCenterOrgPeopleResponse> {
+  const { people, tree } = await fetchTaskCenterOrgPeople(args);
+  return {
+    organization_id: args.organizationId,
+    people,
+    tree,
+    read_only: true,
+  };
+}
+
+export async function getTaskCenterOrgPeopleDetailPayload(args: {
+  organizationId: string;
+  profileId: string;
+}): Promise<TaskCenterOrgPeopleDetailResponse> {
+  const detail = await fetchTaskCenterOrgPeopleDetail(args);
+  if (!detail) throw new TaskCenterApiError("Profile not found.", 404);
+  return {
+    ...detail,
+    read_only: true,
+  };
 }

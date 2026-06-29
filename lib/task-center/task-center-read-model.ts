@@ -24,7 +24,20 @@ import {
   type TaskCenterSummaryCounts,
   type TaskCenterTaskListItem,
 } from "./task-center-api-contract";
+import {
+  buildPeopleAssignmentJoinMaps,
+  emailByUserIdMap,
+  mapPeopleAssignmentJoinedRow,
+  PROFILE_POSITION_ASSIGNMENT_READ_SELECT,
+} from "@/lib/people-org-chart/people-assignment-read-helpers";
 import { buildTaskCenterOrgTree, type TaskCenterOrgTreeNode } from "./task-center-org-display-contract";
+import {
+  buildTaskCenterPeopleOrgTree,
+  toTaskCenterOrgPeopleHistoryRow,
+  type TaskCenterOrgPeopleCurrentRow,
+  type TaskCenterOrgPeopleHistoryRow,
+  type TaskCenterOrgPeopleTreeNode,
+} from "./task-center-people-org-display-contract";
 
 const ACTIVE = [...TASK_CENTER_ACTIVE_STATUSES];
 
@@ -431,6 +444,140 @@ export async function fetchTaskCenterGroups(args: {
   const tree = buildTaskCenterOrgTree(groups).map(annotate);
 
   return { groups, tree, my_group_ids, member_counts, open_task_counts };
+}
+
+const PROFILE_POSITION_ASSIGNMENT_CURRENT_SELECT =
+  "id, profile_id, position_id, group_id, manager_profile_id, starts_at";
+
+export async function fetchTaskCenterOrgPeople(args: {
+  organizationId: string;
+}): Promise<{
+  people: TaskCenterOrgPeopleCurrentRow[];
+  tree: TaskCenterOrgPeopleTreeNode[];
+}> {
+  const { organizationId } = args;
+  const { data: assignmentRows, error } = await supabaseServer
+    .from("profile_position_assignments")
+    .select(PROFILE_POSITION_ASSIGNMENT_CURRENT_SELECT)
+    .eq("organization_id", organizationId)
+    .is("ends_at", null)
+    .order("starts_at", { ascending: true });
+  if (error) throw new Error(error.message);
+
+  const rawRows = (assignmentRows ?? []) as Record<string, unknown>[];
+  if (rawRows.length === 0) {
+    return { people: [], tree: [] };
+  }
+
+  const profileIds = [
+    ...new Set(
+      rawRows
+        .map((row) => String(row.profile_id ?? "").trim())
+        .filter((id) => id.length > 0),
+    ),
+  ];
+
+  const [{ data: profileRows }, assigneeEmails, joins] = await Promise.all([
+    supabaseServer.from("profiles").select("id, full_name").in("id", profileIds),
+    emailByUserIdMap(profileIds),
+    buildPeopleAssignmentJoinMaps(rawRows),
+  ]);
+
+  const assigneeNames = new Map<string, string>();
+  for (const raw of profileRows ?? []) {
+    const r = raw as Record<string, unknown>;
+    const id = String(r.id ?? "").trim();
+    if (!id) continue;
+    assigneeNames.set(id, String(r.full_name ?? "").trim());
+  }
+
+  const people: TaskCenterOrgPeopleCurrentRow[] = rawRows
+    .map((row) => {
+      const profileId = String(row.profile_id ?? "").trim();
+      if (!profileId) return null;
+      const joined = mapPeopleAssignmentJoinedRow(row, joins);
+      return {
+        profile_id: profileId,
+        full_name: assigneeNames.get(profileId) ?? null,
+        email: assigneeEmails.get(profileId) ?? null,
+        assignment_id: joined.id,
+        position_id: joined.position_id,
+        position_code: joined.position_code,
+        position_title: joined.position_title,
+        group_id: joined.group_id,
+        group_name: joined.group_name,
+        group_type: joined.group_type,
+        manager_profile_id: joined.manager_profile_id,
+        manager_full_name: joined.manager_full_name,
+        manager_email: joined.manager_email,
+        starts_at: joined.starts_at,
+      };
+    })
+    .filter((row): row is TaskCenterOrgPeopleCurrentRow => row != null);
+
+  people.sort((a, b) => {
+    const nameA = (a.full_name ?? "").trim().toLowerCase();
+    const nameB = (b.full_name ?? "").trim().toLowerCase();
+    if (nameA !== nameB) return nameA.localeCompare(nameB);
+    const titleA = (a.position_title || a.position_code || "").trim().toLowerCase();
+    const titleB = (b.position_title || b.position_code || "").trim().toLowerCase();
+    if (titleA !== titleB) return titleA.localeCompare(titleB);
+    return (a.position_code ?? "")
+      .trim()
+      .toLowerCase()
+      .localeCompare((b.position_code ?? "").trim().toLowerCase());
+  });
+
+  const tree = buildTaskCenterPeopleOrgTree(people);
+  return { people, tree };
+}
+
+export async function fetchTaskCenterOrgPeopleDetail(args: {
+  organizationId: string;
+  profileId: string;
+}): Promise<{
+  profile_id: string;
+  full_name: string | null;
+  email: string | null;
+  current: TaskCenterOrgPeopleHistoryRow | null;
+  history: TaskCenterOrgPeopleHistoryRow[];
+} | null> {
+  const { organizationId, profileId } = args;
+
+  const { data: profileRow, error: profileError } = await supabaseServer
+    .from("profiles")
+    .select("id, full_name")
+    .eq("id", profileId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
+  if (!profileRow) return null;
+
+  const { data: assignmentRows, error } = await supabaseServer
+    .from("profile_position_assignments")
+    .select(PROFILE_POSITION_ASSIGNMENT_READ_SELECT)
+    .eq("organization_id", organizationId)
+    .eq("profile_id", profileId)
+    .order("starts_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  const rawRows = (assignmentRows ?? []) as Record<string, unknown>[];
+  const joins = await buildPeopleAssignmentJoinMaps(rawRows);
+  const history = rawRows.map((row) =>
+    toTaskCenterOrgPeopleHistoryRow(mapPeopleAssignmentJoinedRow(row, joins)),
+  );
+  const current = history.find((row) => row.ends_at == null) ?? null;
+
+  const emails = await emailByUserIdMap([profileId]);
+  const fullName = String((profileRow as { full_name?: unknown }).full_name ?? "").trim();
+
+  return {
+    profile_id: profileId,
+    full_name: fullName || null,
+    email: emails.get(profileId) ?? null,
+    current,
+    history,
+  };
 }
 
 export async function fetchTaskCenterSourceSummary(args: {

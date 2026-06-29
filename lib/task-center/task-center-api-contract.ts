@@ -14,6 +14,11 @@ import type {
   TaskCenterWatcherRow,
 } from "./task-center-schema-contract";
 import type { TaskCenterOrgGroupDetail, TaskCenterOrgTreeNode } from "./task-center-org-display-contract";
+import type {
+  TaskCenterOrgPeopleCurrentRow,
+  TaskCenterOrgPeopleHistoryRow,
+  TaskCenterOrgPeopleTreeNode,
+} from "./task-center-people-org-display-contract";
 
 /** Shared query params for list endpoints */
 export type TaskCenterTasksQuery = {
@@ -115,6 +120,22 @@ export type TaskCenterSourceSummaryResponse = {
   read_only: true;
 };
 
+export type TaskCenterOrgPeopleResponse = {
+  organization_id: string;
+  people: TaskCenterOrgPeopleCurrentRow[];
+  tree: TaskCenterOrgPeopleTreeNode[];
+  read_only: true;
+};
+
+export type TaskCenterOrgPeopleDetailResponse = {
+  profile_id: string;
+  full_name: string | null;
+  email: string | null;
+  current: TaskCenterOrgPeopleHistoryRow | null;
+  history: TaskCenterOrgPeopleHistoryRow[];
+  read_only: true;
+};
+
 /** Proposed route map — implement in app/api/task-center/** */
 export const TASK_CENTER_API_ROUTES = {
   summary: "GET /api/task-center/summary",
@@ -122,6 +143,8 @@ export const TASK_CENTER_API_ROUTES = {
   taskById: "GET /api/task-center/tasks/[id]",
   groups: "GET /api/task-center/groups",
   groupById: "GET /api/task-center/groups/[id]",
+  orgPeople: "GET /api/task-center/org-people",
+  orgPeopleById: "GET /api/task-center/org-people/[profileId]",
   sourceSummary: "GET /api/task-center/source-summary",
 } as const;
 
