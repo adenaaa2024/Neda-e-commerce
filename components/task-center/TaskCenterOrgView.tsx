@@ -20,6 +20,7 @@ import {
 } from "@/lib/task-center/task-center-org-display-contract";
 
 import { useTaskCenter, TaskCenterLoading } from "./TaskCenterRootClient";
+import { TaskCenterOrgPeopleView } from "./TaskCenterOrgPeopleView";
 import { TaskCenterPhaseNotice } from "./TaskCenterPhaseNotice";
 import {
   TASK_CENTER_CARD_CLASS,
@@ -29,8 +30,12 @@ import {
   TASK_CENTER_READONLY_BANNER,
   TASK_CENTER_STAT_PILL,
   TASK_CENTER_SUBTITLE,
+  TASK_CENTER_TOGGLE,
+  TASK_CENTER_TOGGLE_ACTIVE,
   taskCenterBadgeTone,
 } from "./task-center-ui";
+
+type TaskCenterOrgViewMode = "groups" | "people";
 
 function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
@@ -101,12 +106,14 @@ function GroupCard({
 
 export function TaskCenterOrgView() {
   const { fetchJson, storeId, stores } = useTaskCenter();
+  const [orgMode, setOrgMode] = useState<TaskCenterOrgViewMode>("groups");
   const [data, setData] = useState<TaskCenterGroupsResponse | null>(null);
   const [summary, setSummary] = useState<TaskCenterSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (orgMode !== "groups") return;
     setLoading(true);
     setError(null);
     try {
@@ -121,7 +128,7 @@ export function TaskCenterOrgView() {
     } finally {
       setLoading(false);
     }
-  }, [fetchJson]);
+  }, [fetchJson, orgMode]);
 
   useEffect(() => {
     void load();
@@ -146,17 +153,37 @@ export function TaskCenterOrgView() {
     [data],
   );
 
-  if (loading) return <TaskCenterLoading />;
-  if (error) return <p className="text-sm text-red-500">{error}</p>;
-  if (!data) return null;
+  if (orgMode === "groups" && loading) return <TaskCenterLoading />;
+  if (orgMode === "groups" && error) return <p className="text-sm text-red-500">{error}</p>;
+  if (orgMode === "groups" && !data) return null;
 
   return (
     <div className={TASK_CENTER_PAGE_CLASS}>
-      <header>
-        <h1 className="text-xl font-bold tracking-tight">Org Structure</h1>
-        <p className={TASK_CENTER_SUBTITLE}>
-          Read-only organization structure preview for task routing and visibility.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Org Structure</h1>
+          <p className={TASK_CENTER_SUBTITLE}>
+            Read-only organization structure preview for task routing and visibility.
+          </p>
+        </div>
+        <div className="flex gap-2" role="group" aria-label="Org structure view">
+          <button
+            type="button"
+            className={orgMode === "groups" ? TASK_CENTER_TOGGLE_ACTIVE : TASK_CENTER_TOGGLE}
+            aria-pressed={orgMode === "groups"}
+            onClick={() => setOrgMode("groups")}
+          >
+            Groups
+          </button>
+          <button
+            type="button"
+            className={orgMode === "people" ? TASK_CENTER_TOGGLE_ACTIVE : TASK_CENTER_TOGGLE}
+            aria-pressed={orgMode === "people"}
+            onClick={() => setOrgMode("people")}
+          >
+            People
+          </button>
+        </div>
       </header>
 
       {/* Read-only notice */}
@@ -165,8 +192,12 @@ export function TaskCenterOrgView() {
         <p>{TASK_CENTER_ORG_READONLY_NOTICE}</p>
       </div>
 
-      {/* Organization root card */}
-      <section className={`${TASK_CENTER_CARD_CLASS} p-4 sm:p-5`}>
+      {orgMode === "people" ? (
+        <TaskCenterOrgPeopleView />
+      ) : data ? (
+        <>
+          {/* Organization root card */}
+          <section className={`${TASK_CENTER_CARD_CLASS} p-4 sm:p-5`}>
         <div className="flex items-center gap-2">
           <Building2 className={`h-5 w-5 shrink-0 ${TASK_CENTER_MUTED}`} aria-hidden />
           <div className="min-w-0">
@@ -223,6 +254,8 @@ export function TaskCenterOrgView() {
         <ExternalLink className="h-4 w-4" aria-hidden />
         Manage groups in Platform Access
       </a>
+        </>
+      ) : null}
     </div>
   );
 }

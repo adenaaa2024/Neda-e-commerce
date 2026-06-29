@@ -86,6 +86,56 @@ export function buildTaskCenterPeopleOrgTree(
   return roots;
 }
 
+export const TASK_CENTER_ORG_PEOPLE_EMPTY_TITLE = "No people assignments yet";
+export const TASK_CENTER_ORG_PEOPLE_EMPTY_DESCRIPTION =
+  "Assign people in System Settings → People assignments.";
+export const TASK_CENTER_ORG_PEOPLE_SETTINGS_HREF = "/settings/people";
+
+export function formatTaskCenterOrgPeopleDisplayName(
+  fullName: string | null,
+  email: string | null,
+): string {
+  const name = (fullName ?? "").trim();
+  if (name) return name;
+  const em = (email ?? "").trim();
+  return em || "Unknown person";
+}
+
+export function formatTaskCenterOrgPeopleManagerLabel(
+  fullName: string | null,
+  email: string | null,
+): string {
+  const name = (fullName ?? "").trim();
+  if (name) return name;
+  const em = (email ?? "").trim();
+  return em || "—";
+}
+
+export function formatTaskCenterOrgPeoplePositionLabel(title: string, code: string): string {
+  const t = (title ?? "").trim();
+  const c = (code ?? "").trim();
+  if (t && c && t.toLowerCase() !== c.toLowerCase()) return `${t} (${c})`;
+  return t || c || "—";
+}
+
+export function formatTaskCenterOrgPeopleGroupLabel(
+  name: string | null,
+  type: string | null,
+): string | null {
+  const n = (name ?? "").trim();
+  if (!n) return null;
+  const t = (type ?? "").trim();
+  if (t) return `${n} · ${t.replace(/_/g, " ")}`;
+  return n;
+}
+
+export function formatTaskCenterOrgPeopleDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
 export function toTaskCenterOrgPeopleHistoryRow(
   joined: PeopleAssignmentJoinedRow,
 ): TaskCenterOrgPeopleHistoryRow {
