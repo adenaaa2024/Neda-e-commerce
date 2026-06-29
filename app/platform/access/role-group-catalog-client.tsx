@@ -4,23 +4,28 @@ import React, { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  ArrowLeft, Loader2, Pencil, Plus, Save, Trash2, X,
+  ArrowLeft, Archive, Loader2, Pencil, Plus, Save, Trash2, X,
 } from "lucide-react";
 import { PageHeaderWithInfo } from "../components/page-header-with-info";
 import { useUserRole } from "../../../components/UserRoleContext";
 import {
+  archivePositionAccessAction,
   createGroupAccessAction,
+  createPositionAccessAction,
   createRoleAccessAction,
   deleteGroupAccessAction,
   deleteRoleAccessAction,
   getPlatformAccessPageAccessAction,
   listGroupsForOrganizationAccessAction,
   listOrganizationsForAccessAction,
+  listPositionsAccessAction,
   listRolesCatalogAction,
   updateGroupAccessAction,
+  updatePositionAccessAction,
   updateRoleAccessAction,
   type GroupCatalogRow,
   type OrganizationOptionRow,
+  type PositionCatalogRow,
   type RoleCatalogRow,
 } from "./access-actions";
 import {
@@ -39,7 +44,7 @@ const BTN_PRIMARY =
 const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium transition hover:bg-accent disabled:opacity-50";
 
-type TabKey = "roles" | "groups";
+type TabKey = "roles" | "groups" | "positions";
 
 function formatTs(iso: string): string {
   if (!iso?.trim()) return "—";
@@ -72,6 +77,21 @@ function GroupTypeBadge({ type }: { type: GroupType }) {
   );
 }
 
+function PositionStatusBadge({ isActive }: { isActive: boolean }) {
+  return (
+    <span
+      className={[
+        "inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium",
+        isActive
+          ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-300"
+          : "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700/50 dark:bg-slate-900/40 dark:text-slate-400",
+      ].join(" ")}
+    >
+      {isActive ? "Active" : "Inactive"}
+    </span>
+  );
+}
+
 function RoleGroupCatalogInner() {
   const { organizationId, homeOrganizationId } = useUserRole();
   const searchParams = useSearchParams();
@@ -85,16 +105,20 @@ function RoleGroupCatalogInner() {
   const [roleScopeFilter, setRoleScopeFilter] = useState<"" | "tenant" | "system">("");
   const [roleDeleteBusy, setRoleDeleteBusy] = useState(false);
   const [groupDeleteBusy, setGroupDeleteBusy] = useState(false);
+  const [positionArchiveBusy, setPositionArchiveBusy] = useState(false);
   const [orgs, setOrgs] = useState<OrganizationOptionRow[]>([]);
   const [orgFilterId, setOrgFilterId] = useState("");
   const [groups, setGroups] = useState<GroupCatalogRow[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
+  const [positions, setPositions] = useState<PositionCatalogRow[]>([]);
+  const [positionsLoading, setPositionsLoading] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     const t = searchParams.get("tab")?.trim().toLowerCase();
     if (t === "groups") setTab("groups");
+    else if (t === "positions") setTab("positions");
     else if (t === "roles") setTab("roles");
   }, [searchParams]);
 
@@ -147,6 +171,21 @@ function RoleGroupCatalogInner() {
     setGroups(res.rows);
   }, [showToast]);
 
+  const loadPositions = useCallback(async (oid: string) => {
+    if (!oid.trim()) {
+      setPositions([]);
+      return;
+    }
+    setPositionsLoading(true);
+    const res = await listPositionsAccessAction(oid);
+    setPositionsLoading(false);
+    if (!res.ok) {
+      showToast(res.error, false);
+      return;
+    }
+    setPositions(res.rows);
+  }, [showToast]);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -172,6 +211,11 @@ function RoleGroupCatalogInner() {
     void loadGroups(orgFilterId);
   }, [orgFilterId, tab, loadGroups]);
 
+  useEffect(() => {
+    if (!orgFilterId || tab !== "positions") return;
+    void loadPositions(orgFilterId);
+  }, [orgFilterId, tab, loadPositions]);
+
   const visibleRoles = React.useMemo(() => {
     if (!roleScopeFilter) return roles;
     return roles.filter((r) => r.scope === roleScopeFilter);
@@ -192,6 +236,15 @@ function RoleGroupCatalogInner() {
   const [gKey, setGKey] = useState("");
   const [gDesc, setGDesc] = useState("");
   const [gType, setGType] = useState<GroupType>(DEFAULT_GROUP_TYPE);
+
+  const [positionModal, setPositionModal] = useState<"create" | PositionCatalogRow | null>(null);
+  const [positionSaving, setPositionSaving] = useState(false);
+  const [pOrgId, setPOrgId] = useState("");
+  const [pCode, setPCode] = useState("");
+  const [pTitle, setPTitle] = useState("");
+  const [pDesc, setPDesc] = useState("");
+  const [pLevel, setPLevel] = useState("");
+  const [pActive, setPActive] = useState(true);
 
   function openCreateRole() {
     setRName("");
@@ -227,6 +280,26 @@ function RoleGroupCatalogInner() {
     setGDesc(row.description ?? "");
     setGType(normalizeGroupType(row.group_type));
     setGroupModal(row);
+  }
+
+  function openCreatePosition() {
+    setPOrgId(orgFilterId || orgs[0]?.id || "");
+    setPCode("");
+    setPTitle("");
+    setPDesc("");
+    setPLevel("");
+    setPActive(true);
+    setPositionModal("create");
+  }
+
+  function openEditPosition(row: PositionCatalogRow) {
+    setPOrgId(row.organization_id);
+    setPCode(row.code);
+    setPTitle(row.title);
+    setPDesc(row.description ?? "");
+    setPLevel(row.level != null ? String(row.level) : "");
+    setPActive(row.is_active);
+    setPositionModal(row);
   }
 
   async function submitRole(e: React.FormEvent) {
@@ -352,6 +425,69 @@ function RoleGroupCatalogInner() {
     }
   }
 
+  async function handleArchivePosition() {
+    if (positionModal === "create" || !positionModal) return;
+    if (
+      !window.confirm(
+        `Archive position «${positionModal.title}» (${positionModal.code})? It will be deactivated and hidden from this catalog.`,
+      )
+    ) {
+      return;
+    }
+    setPositionArchiveBusy(true);
+    try {
+      const res = await archivePositionAccessAction(positionModal.id);
+      if (!res.ok) {
+        showToast(res.error, false);
+        return;
+      }
+      showToast("Position archived.", true);
+      setPositionModal(null);
+      if (orgFilterId) await loadPositions(orgFilterId);
+    } finally {
+      setPositionArchiveBusy(false);
+    }
+  }
+
+  async function submitPosition(e: React.FormEvent) {
+    e.preventDefault();
+    setPositionSaving(true);
+    try {
+      if (positionModal === "create") {
+        const res = await createPositionAccessAction({
+          organization_id: pOrgId,
+          code: pCode,
+          title: pTitle,
+          description: pDesc,
+          level: pLevel.trim() ? pLevel : null,
+          is_active: pActive,
+        });
+        if (!res.ok) {
+          showToast(res.error, false);
+          return;
+        }
+        showToast("Position created.", true);
+      } else if (positionModal) {
+        const res = await updatePositionAccessAction(positionModal.id, {
+          code: pCode,
+          title: pTitle,
+          description: pDesc,
+          level: pLevel.trim() ? pLevel : null,
+          is_active: pActive,
+        });
+        if (!res.ok) {
+          showToast(res.error, false);
+          return;
+        }
+        showToast("Position updated.", true);
+      }
+      setPositionModal(null);
+      if (orgFilterId) await loadPositions(orgFilterId);
+    } finally {
+      setPositionSaving(false);
+    }
+  }
+
   if (loadingGate) {
     return (
       <div className="mx-auto flex min-h-[40vh] max-w-6xl items-center justify-center px-4 py-16">
@@ -403,9 +539,9 @@ function RoleGroupCatalogInner() {
         </div>
       )}
 
-      <PageHeaderWithInfo title="Role & group catalog" infoAriaLabel="About the role and group catalog">
+      <PageHeaderWithInfo title="Role, group & position catalog" infoAriaLabel="About the access catalog">
         <p>
-          Create and edit role definitions and organization-scoped groups. System roles in use cannot be deleted.
+          Create and edit role definitions, organization-scoped groups, and position catalog entries. System roles in use cannot be deleted; positions are archived (soft-deleted), not removed.
         </p>
       </PageHeaderWithInfo>
 
@@ -433,6 +569,18 @@ function RoleGroupCatalogInner() {
           ].join(" ")}
         >
           Groups
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("positions")}
+          className={[
+            "border-b-2 px-3 py-2 text-sm font-medium transition",
+            tab === "positions"
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground",
+          ].join(" ")}
+        >
+          Positions
         </button>
       </div>
 
@@ -522,7 +670,7 @@ function RoleGroupCatalogInner() {
             )}
           </div>
         </div>
-      ) : (
+      ) : tab === "groups" ? (
         <div className="space-y-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
             <div className="min-w-[220px] flex-1">
@@ -607,6 +755,102 @@ function RoleGroupCatalogInner() {
                               className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                               aria-label="Edit group"
                               onClick={() => openEditGroup(row)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="min-w-[220px] flex-1">
+              <label className={LABEL} htmlFor="catalog-positions-org-filter">Organization</label>
+              <select
+                id="catalog-positions-org-filter"
+                className={INPUT}
+                value={orgFilterId}
+                onChange={(e) => setOrgFilterId(e.target.value)}
+              >
+                {orgs.length === 0 ? (
+                  <option value="">No organizations</option>
+                ) : (
+                  orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.displayName}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+            <button type="button" className={BTN_PRIMARY} onClick={openCreatePosition} disabled={!orgFilterId}>
+              <Plus className="h-4 w-4" />
+              New position
+            </button>
+          </div>
+          <div className="rounded-xl border border-border bg-card shadow-sm">
+            {positionsLoading ? (
+              <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Loading positions…
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <th className="px-3 py-2.5">Title</th>
+                      <th className="px-3 py-2.5">Code</th>
+                      <th className="w-[80px] px-3 py-2.5">Level</th>
+                      <th className="w-[100px] px-3 py-2.5">Status</th>
+                      <th className="px-3 py-2.5">Description</th>
+                      <th className="px-3 py-2.5">Updated</th>
+                      <th className="px-3 py-2.5">Created</th>
+                      <th className="w-[100px] px-3 py-2.5 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                          No positions for this organization.
+                        </td>
+                      </tr>
+                    ) : (
+                      positions.map((row) => (
+                        <tr key={row.id} className="border-b border-border last:border-0">
+                          <td className="px-3 py-2 align-middle font-medium">{row.title}</td>
+                          <td className="px-3 py-2 align-middle font-mono text-xs text-muted-foreground">{row.code}</td>
+                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                            {row.level != null ? row.level : "—"}
+                          </td>
+                          <td className="px-3 py-2 align-middle">
+                            <PositionStatusBadge isActive={row.is_active} />
+                          </td>
+                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                            <span className="line-clamp-2" title={row.description ?? undefined}>
+                              {row.description ?? "—"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                            {formatTs(row.updated_at)}
+                          </td>
+                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                            {formatTs(row.created_at)}
+                          </td>
+                          <td className="px-3 py-2 align-middle text-right">
+                            <button
+                              type="button"
+                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              aria-label="Edit position"
+                              onClick={() => openEditPosition(row)}
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
@@ -849,6 +1093,125 @@ function RoleGroupCatalogInner() {
                   </button>
                   <button type="submit" className={BTN_PRIMARY} disabled={groupSaving || groupDeleteBusy}>
                     {groupSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    Save
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {positionModal ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-xl"
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">
+                {positionModal === "create" ? "New position" : "Edit position"}
+              </h2>
+              <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted" onClick={() => setPositionModal(null)}>
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={(e) => void submitPosition(e)} className="space-y-4">
+              <div>
+                <label className={LABEL} htmlFor="np-org">Organization <span className="text-destructive">*</span></label>
+                <select
+                  id="np-org"
+                  className={INPUT}
+                  value={pOrgId}
+                  onChange={(e) => setPOrgId(e.target.value)}
+                  required
+                  disabled={positionModal !== "create"}
+                >
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.displayName}
+                    </option>
+                  ))}
+                </select>
+                {positionModal !== "create" ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">Organization cannot be moved in this version.</p>
+                ) : null}
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="np-code">Code <span className="text-destructive">*</span></label>
+                <input
+                  id="np-code"
+                  className={INPUT}
+                  value={pCode}
+                  onChange={(e) => setPCode(e.target.value)}
+                  required
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="np-title">Title <span className="text-destructive">*</span></label>
+                <input
+                  id="np-title"
+                  className={INPUT}
+                  value={pTitle}
+                  onChange={(e) => setPTitle(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="np-desc">Description</label>
+                <textarea
+                  id="np-desc"
+                  className={`${INPUT} min-h-[80px] py-2`}
+                  value={pDesc}
+                  onChange={(e) => setPDesc(e.target.value)}
+                  maxLength={300}
+                />
+              </div>
+              <div>
+                <label className={LABEL} htmlFor="np-level">Level</label>
+                <input
+                  id="np-level"
+                  type="number"
+                  className={INPUT}
+                  value={pLevel}
+                  onChange={(e) => setPLevel(e.target.value)}
+                  placeholder="Optional"
+                  step={1}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Optional hierarchy level for org chart ordering.
+                </p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={pActive}
+                  onChange={(e) => setPActive(e.target.checked)}
+                />
+                Active
+              </label>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                <div className="min-w-0">
+                  {positionModal !== "create" ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                      disabled={positionArchiveBusy || positionSaving}
+                      onClick={() => void handleArchivePosition()}
+                    >
+                      {positionArchiveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                      Archive position
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button type="button" className={BTN_SECONDARY} onClick={() => setPositionModal(null)} disabled={positionSaving || positionArchiveBusy}>
+                    Cancel
+                  </button>
+                  <button type="submit" className={BTN_PRIMARY} disabled={positionSaving || positionArchiveBusy}>
+                    {positionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     Save
                   </button>
                 </div>

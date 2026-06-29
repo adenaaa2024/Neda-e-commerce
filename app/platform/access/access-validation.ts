@@ -136,3 +136,63 @@ export function collectGroupUpdateErrors(input: {
   }
   return Object.keys(errors).length ? errors : null;
 }
+
+export function validatePositionTitle(titleRaw: string): string | null {
+  return validateRoleName(titleRaw);
+}
+
+export function validatePositionCode(codeRaw: string): string | null {
+  return validateRoleKey(codeRaw);
+}
+
+export function validatePositionLevel(levelRaw: string | number | null | undefined): string | null {
+  if (levelRaw == null || String(levelRaw).trim() === "") return null;
+  const n = typeof levelRaw === "number" ? levelRaw : Number.parseInt(String(levelRaw).trim(), 10);
+  if (!Number.isInteger(n)) return "Level must be a whole number.";
+  return null;
+}
+
+export function parsePositionLevel(levelRaw: string | number | null | undefined): number | null {
+  if (levelRaw == null || String(levelRaw).trim() === "") return null;
+  const n = typeof levelRaw === "number" ? levelRaw : Number.parseInt(String(levelRaw).trim(), 10);
+  return Number.isInteger(n) ? n : null;
+}
+
+export function collectPositionCreateErrors(input: {
+  organization_id: string;
+  code: string;
+  title: string;
+  description?: string | null;
+  level?: string | number | null;
+}): FieldErrorMap | null {
+  const errors: FieldErrorMap = {};
+  const oid = input.organization_id.trim();
+  if (!oid) errors.organization_id = "Organization is required.";
+  const ce = validatePositionCode(input.code);
+  if (ce) errors.code = ce;
+  const te = validatePositionTitle(input.title);
+  if (te) errors.title = te;
+  const de = validateDescription(input.description);
+  if (de) errors.description = de;
+  const le = validatePositionLevel(input.level);
+  if (le) errors.level = le;
+  return Object.keys(errors).length ? errors : null;
+}
+
+export function collectPositionUpdateErrors(input: {
+  code: string;
+  title: string;
+  description?: string | null;
+  level?: string | number | null;
+}): FieldErrorMap | null {
+  const errors: FieldErrorMap = {};
+  const ce = validatePositionCode(input.code);
+  if (ce) errors.code = ce;
+  const te = validatePositionTitle(input.title);
+  if (te) errors.title = te;
+  const de = validateDescription(input.description);
+  if (de) errors.description = de;
+  const le = validatePositionLevel(input.level);
+  if (le) errors.level = le;
+  return Object.keys(errors).length ? errors : null;
+}
