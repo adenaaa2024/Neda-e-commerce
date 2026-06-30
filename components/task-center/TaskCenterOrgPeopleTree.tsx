@@ -4,9 +4,10 @@ import { ChevronRight, Users } from "lucide-react";
 
 import type { TaskCenterOrgPeopleTreeNode } from "@/lib/task-center/task-center-people-org-display-contract";
 import {
+  formatTaskCenterOrgPeopleAssignmentLabel,
   formatTaskCenterOrgPeopleDisplayName,
   formatTaskCenterOrgPeopleGroupLabel,
-  formatTaskCenterOrgPeoplePositionLabel,
+  hasTaskCenterOrgPeopleCurrentAssignment,
 } from "@/lib/task-center/task-center-people-org-display-contract";
 
 import {
@@ -28,7 +29,8 @@ function PeopleTreeNode({
 }) {
   const isSelected = selectedProfileId === node.profile_id;
   const displayName = formatTaskCenterOrgPeopleDisplayName(node.full_name, node.email);
-  const positionLabel = formatTaskCenterOrgPeoplePositionLabel(node.position_title, node.position_code);
+  const assignmentLabel = formatTaskCenterOrgPeopleAssignmentLabel(node);
+  const hasAssignment = hasTaskCenterOrgPeopleCurrentAssignment(node);
   const groupLabel = formatTaskCenterOrgPeopleGroupLabel(node.group_name, node.group_type);
   const childCount = node.children.length;
 
@@ -48,7 +50,13 @@ function PeopleTreeNode({
             />
             <div className="min-w-0 flex-1">
               <p className="break-words font-semibold leading-snug">{displayName}</p>
-              <p className={`mt-0.5 text-xs ${TASK_CENTER_MUTED}`}>{positionLabel}</p>
+              {hasAssignment ? (
+                <p className={`mt-0.5 text-xs ${TASK_CENTER_MUTED}`}>{assignmentLabel}</p>
+              ) : (
+                <span className="task-center-text-secondary mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium">
+                  {assignmentLabel}
+                </span>
+              )}
               {groupLabel ? (
                 <p className="task-center-text-secondary mt-1 text-xs">{groupLabel}</p>
               ) : null}

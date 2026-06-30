@@ -9,17 +9,17 @@ export type TaskCenterOrgPeopleCurrentRow = {
   profile_id: string;
   full_name: string | null;
   email: string | null;
-  assignment_id: string;
-  position_id: string;
-  position_code: string;
-  position_title: string;
+  assignment_id: string | null;
+  position_id: string | null;
+  position_code: string | null;
+  position_title: string | null;
   group_id: string | null;
   group_name: string | null;
   group_type: string | null;
   manager_profile_id: string | null;
   manager_full_name: string | null;
   manager_email: string | null;
-  starts_at: string;
+  starts_at: string | null;
 };
 
 export type TaskCenterOrgPeopleTreeNode = TaskCenterOrgPeopleCurrentRow & {
@@ -56,7 +56,13 @@ function comparePeopleNodes(a: TaskCenterOrgPeopleCurrentRow, b: TaskCenterOrgPe
     .localeCompare((b.position_code ?? "").trim().toLowerCase());
 }
 
-/** Build manager hierarchy from current assignment rows (same org only). */
+export function hasTaskCenterOrgPeopleCurrentAssignment(
+  person: Pick<TaskCenterOrgPeopleCurrentRow, "assignment_id">,
+): boolean {
+  return person.assignment_id != null && person.assignment_id.trim().length > 0;
+}
+
+/** Build manager hierarchy from org profiles; only assigned people link to managers. */
 export function buildTaskCenterPeopleOrgTree(
   people: TaskCenterOrgPeopleCurrentRow[],
 ): TaskCenterOrgPeopleTreeNode[] {
@@ -70,7 +76,13 @@ export function buildTaskCenterPeopleOrgTree(
   const roots: TaskCenterOrgPeopleTreeNode[] = [];
   for (const node of byProfileId.values()) {
     const managerId = node.manager_profile_id;
-    if (managerId && currentProfileIds.has(managerId) && byProfileId.has(managerId)) {
+    const hasAssignment = hasTaskCenterOrgPeopleCurrentAssignment(node);
+    if (
+      hasAssignment &&
+      managerId &&
+      currentProfileIds.has(managerId) &&
+      byProfileId.has(managerId)
+    ) {
       byProfileId.get(managerId)!.children.push(node);
     } else {
       roots.push(node);
@@ -86,9 +98,10 @@ export function buildTaskCenterPeopleOrgTree(
   return roots;
 }
 
-export const TASK_CENTER_ORG_PEOPLE_EMPTY_TITLE = "No people assignments yet";
+export const TASK_CENTER_ORG_PEOPLE_EMPTY_TITLE = "No people in this organization";
 export const TASK_CENTER_ORG_PEOPLE_EMPTY_DESCRIPTION =
-  "Assign people in System Settings → People assignments.";
+  "When users join this organization they will appear here.";
+export const TASK_CENTER_ORG_PEOPLE_NO_ASSIGNMENT_LABEL = "No assignment";
 export const TASK_CENTER_ORG_PEOPLE_SETTINGS_HREF = "/settings/people";
 
 export function formatTaskCenterOrgPeopleDisplayName(
@@ -111,11 +124,23 @@ export function formatTaskCenterOrgPeopleManagerLabel(
   return em || "—";
 }
 
-export function formatTaskCenterOrgPeoplePositionLabel(title: string, code: string): string {
+export function formatTaskCenterOrgPeoplePositionLabel(
+  title: string | null,
+  code: string | null,
+): string {
   const t = (title ?? "").trim();
   const c = (code ?? "").trim();
   if (t && c && t.toLowerCase() !== c.toLowerCase()) return `${t} (${c})`;
   return t || c || "—";
+}
+
+export function formatTaskCenterOrgPeopleAssignmentLabel(
+  person: Pick<TaskCenterOrgPeopleCurrentRow, "assignment_id" | "position_title" | "position_code">,
+): string {
+  if (!hasTaskCenterOrgPeopleCurrentAssignment(person)) {
+    return TASK_CENTER_ORG_PEOPLE_NO_ASSIGNMENT_LABEL;
+  }
+  return formatTaskCenterOrgPeoplePositionLabel(person.position_title, person.position_code);
 }
 
 export function formatTaskCenterOrgPeopleGroupLabel(

@@ -118,7 +118,9 @@ export function TaskCenterOrgPeopleView() {
           <Users className={`h-5 w-5 shrink-0 ${TASK_CENTER_MUTED}`} aria-hidden />
           <div>
             <p className="text-base font-bold">People hierarchy</p>
-            <p className={`text-xs task-center-text-secondary`}>Manager reporting lines from current assignments.</p>
+            <p className={`text-xs task-center-text-secondary`}>
+              All people in your organization; reporting lines from current assignments.
+            </p>
           </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 sm:max-w-xs">

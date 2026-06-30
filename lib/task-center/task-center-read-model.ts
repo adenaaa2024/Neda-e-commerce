@@ -456,61 +456,89 @@ export async function fetchTaskCenterOrgPeople(args: {
   tree: TaskCenterOrgPeopleTreeNode[];
 }> {
   const { organizationId } = args;
-  const { data: assignmentRows, error } = await supabaseServer
+
+  const { data: profileRows, error: profileError } = await supabaseServer
+    .from("profiles")
+    .select("id, full_name")
+    .eq("organization_id", organizationId)
+    .order("full_name", { ascending: true });
+  if (profileError) throw new Error(profileError.message);
+
+  const orgProfiles = profileRows ?? [];
+  if (orgProfiles.length === 0) {
+    return { people: [], tree: [] };
+  }
+
+  const profileIds = orgProfiles
+    .map((raw) => String((raw as { id: unknown }).id ?? "").trim())
+    .filter((id) => id.length > 0);
+
+  const { data: assignmentRows, error: assignmentError } = await supabaseServer
     .from("profile_position_assignments")
     .select(PROFILE_POSITION_ASSIGNMENT_CURRENT_SELECT)
     .eq("organization_id", organizationId)
     .is("ends_at", null)
     .order("starts_at", { ascending: true });
-  if (error) throw new Error(error.message);
+  if (assignmentError) throw new Error(assignmentError.message);
 
-  const rawRows = (assignmentRows ?? []) as Record<string, unknown>[];
-  if (rawRows.length === 0) {
-    return { people: [], tree: [] };
+  const rawAssignmentRows = (assignmentRows ?? []) as Record<string, unknown>[];
+  const assignmentByProfileId = new Map<string, Record<string, unknown>>();
+  for (const row of rawAssignmentRows) {
+    const profileId = String(row.profile_id ?? "").trim();
+    if (!profileId || assignmentByProfileId.has(profileId)) continue;
+    assignmentByProfileId.set(profileId, row);
   }
 
-  const profileIds = [
-    ...new Set(
-      rawRows
-        .map((row) => String(row.profile_id ?? "").trim())
-        .filter((id) => id.length > 0),
-    ),
-  ];
-
-  const [{ data: profileRows }, assigneeEmails, joins] = await Promise.all([
-    supabaseServer.from("profiles").select("id, full_name").in("id", profileIds),
+  const [assigneeEmails, joins] = await Promise.all([
     emailByUserIdMap(profileIds),
-    buildPeopleAssignmentJoinMaps(rawRows),
+    buildPeopleAssignmentJoinMaps(rawAssignmentRows),
   ]);
 
-  const assigneeNames = new Map<string, string>();
-  for (const raw of profileRows ?? []) {
-    const r = raw as Record<string, unknown>;
-    const id = String(r.id ?? "").trim();
-    if (!id) continue;
-    assigneeNames.set(id, String(r.full_name ?? "").trim());
-  }
-
-  const people: TaskCenterOrgPeopleCurrentRow[] = rawRows
-    .map((row) => {
-      const profileId = String(row.profile_id ?? "").trim();
+  const people = orgProfiles
+    .map((raw): TaskCenterOrgPeopleCurrentRow | null => {
+      const r = raw as Record<string, unknown>;
+      const profileId = String(r.id ?? "").trim();
       if (!profileId) return null;
-      const joined = mapPeopleAssignmentJoinedRow(row, joins);
+
+      const fullName = String(r.full_name ?? "").trim() || null;
+      const email = assigneeEmails.get(profileId) ?? null;
+      const assignmentRow = assignmentByProfileId.get(profileId);
+
+      if (assignmentRow) {
+        const joined = mapPeopleAssignmentJoinedRow(assignmentRow, joins);
+        return {
+          profile_id: profileId,
+          full_name: fullName,
+          email,
+          assignment_id: joined.id,
+          position_id: joined.position_id,
+          position_code: joined.position_code,
+          position_title: joined.position_title,
+          group_id: joined.group_id,
+          group_name: joined.group_name,
+          group_type: joined.group_type,
+          manager_profile_id: joined.manager_profile_id,
+          manager_full_name: joined.manager_full_name,
+          manager_email: joined.manager_email,
+          starts_at: joined.starts_at,
+        };
+      }
+
       return {
         profile_id: profileId,
-        full_name: assigneeNames.get(profileId) ?? null,
-        email: assigneeEmails.get(profileId) ?? null,
-        assignment_id: joined.id,
-        position_id: joined.position_id,
-        position_code: joined.position_code,
-        position_title: joined.position_title,
-        group_id: joined.group_id,
-        group_name: joined.group_name,
-        group_type: joined.group_type,
-        manager_profile_id: joined.manager_profile_id,
-        manager_full_name: joined.manager_full_name,
-        manager_email: joined.manager_email,
-        starts_at: joined.starts_at,
+        full_name: fullName,
+        email,
+        assignment_id: null,
+        position_id: null,
+        position_code: null,
+        position_title: null,
+        group_id: null,
+        group_name: null,
+        group_type: null,
+        manager_profile_id: null,
+        manager_full_name: null,
+        manager_email: null,
+        starts_at: null,
       };
     })
     .filter((row): row is TaskCenterOrgPeopleCurrentRow => row != null);
