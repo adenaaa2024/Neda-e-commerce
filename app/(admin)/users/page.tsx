@@ -782,6 +782,17 @@ export default function UsersPage() {
                   )}
                 </select>
                 <p className="mt-1 text-xs text-muted-foreground">
+                  Role controls system permissions. Job positions and reporting lines are managed in{" "}
+                  <Link href="/settings/positions" className="font-medium text-primary underline hover:text-primary/90">
+                    Positions
+                  </Link>{" "}
+                  and{" "}
+                  <Link href="/settings/people" className="font-medium text-primary underline hover:text-primary/90">
+                    People assignments
+                  </Link>
+                  .
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   Tenant roles apply to customer organizations; system roles are for internal staff.
                   {editing
                     ? " Pick a role and use Save changes."

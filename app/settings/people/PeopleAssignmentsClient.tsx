@@ -400,7 +400,11 @@ export default function PeopleAssignmentsClient() {
 
         {positions.length === 0 ? (
           <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 dark:text-amber-100">
-            No active positions are defined yet. Positions are managed in Platform Access catalog.
+            No active positions yet. Create positions for your company, then return here to assign
+            people.{" "}
+            <Link href="/settings/positions" className="font-medium text-primary underline hover:text-primary/90">
+              Go to Positions
+            </Link>
           </div>
         ) : null}
 

@@ -16,7 +16,7 @@
  */
 
 import React, {
-  createContext, useContext, useCallback, useEffect, useRef, useState,
+  createContext, useContext, useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
@@ -38,9 +38,18 @@ import {
   isClaimsHubRoute,
   isClaimsSidebarActive,
   isReturnsProcessingRoute,
+  normalizeAppPath,
 } from "../lib/claims-hub-routes";
 import { MAIN_SIDEBAR, WMS_ONLY_NAV, DASHBOARD_NAV_LEAF, TASK_CENTER_NAV_LEAF, isLeafVisibleByRbac, type SidebarGroup } from "../lib/sidebar-config";
 import { getSidebarIcon } from "../lib/sidebar-icons";
+import { resolveBestMatchingSidebarHref } from "../lib/sidebar-nav-active";
+
+/** All configured sidebar leaf hrefs — used for longest-prefix active matching. */
+const ALL_SIDEBAR_LEAF_HREFS: string[] = [
+  DASHBOARD_NAV_LEAF.path,
+  TASK_CENTER_NAV_LEAF.path,
+  ...MAIN_SIDEBAR.flatMap((sec) => sec.groups.flatMap((g) => g.children.map((c) => c.path))),
+];
 
 // ─── Nav (from `lib/sidebar-config.ts`) ─────────────────────────────────────
 
@@ -128,6 +137,12 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
   /** Standalone mobile scanner UI — no ERP sidebar, top search, or workspace chrome. */
   const isOperatorMobileScanner = pathname.startsWith("/scanner/operator-mobile");
 
+  const normalizedPath = normalizeAppPath(pathname);
+  const bestSidebarLeafMatch = useMemo(
+    () => resolveBestMatchingSidebarHref(pathname, ALL_SIDEBAR_LEAF_HREFS),
+    [pathname],
+  );
+
   const expandedSidebarWidth = sidebarWidthPx ?? SIDEBAR_EXPANDED_DEFAULT_PX;
 
   useEffect(() => {
@@ -193,7 +208,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
 
   function isActive(href?: string) {
     if (!href || href === "#") return false;
-    const path = pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
+    const path = normalizedPath;
     if (href === "/dashboard") return path === "/dashboard";
     if (href === "/settings") return path === "/settings";
     if (href === "/platform/settings") return path === "/platform/settings";
@@ -203,7 +218,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
     if (href === "/returns") {
       return isReturnsProcessingRoute(path);
     }
-    return path === href || path.startsWith(`${href}/`);
+    return bestSidebarLeafMatch === href;
   }
 
   // Auto-expand accordion groups when a child route becomes active

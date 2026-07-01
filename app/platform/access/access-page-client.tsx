@@ -607,18 +607,7 @@ function PlatformAccessPageInner() {
   const {
     organizationId: workspaceOrganizationId,
     actorUserId,
-    setWorkspaceOrganizationId,
-    sessionCanWorkspaceSwitch,
   } = useUserRole();
-
-  const commitWorkspaceOrgScope = useCallback(
-    (id: string) => {
-      const t = id.trim();
-      if (!t) return;
-      if (sessionCanWorkspaceSwitch) setWorkspaceOrganizationId(t);
-    },
-    [sessionCanWorkspaceSwitch, setWorkspaceOrganizationId],
-  );
 
   const [loadingGate, setLoadingGate] = useState(true);
   const [accessDenied, setAccessDenied] = useState<"not_authenticated" | "forbidden" | null>(null);
@@ -1651,10 +1640,7 @@ function PlatformAccessPageInner() {
                 labelId="access-user-company-label"
                 orgs={orgs}
                 value={userAccessCompanyFilterId}
-                onChange={(id) => {
-                  setUserAccessCompanyFilterId(id);
-                  commitWorkspaceOrgScope(id);
-                }}
+                onChange={setUserAccessCompanyFilterId}
                 includeAllRow={false}
                 selectWhenEmptyLabel="Select a company"
               />
@@ -1776,7 +1762,6 @@ function PlatformAccessPageInner() {
                 value={orgFilterId}
                 onChange={(id) => {
                   setOrgFilterId(id);
-                  commitWorkspaceOrgScope(id);
                   setSelectedRoleId("");
                 }}
                 includeAllRow={false}
@@ -1852,7 +1837,6 @@ function PlatformAccessPageInner() {
                 value={orgFilterId}
                 onChange={(id) => {
                   setOrgFilterId(id);
-                  commitWorkspaceOrgScope(id);
                   setSelectedGroupId("");
                 }}
                 includeAllRow={false}
@@ -1945,10 +1929,7 @@ function PlatformAccessPageInner() {
                   labelId="access-report-org-label"
                   orgs={orgs}
                   value={orgFilterId}
-                  onChange={(id) => {
-                    setOrgFilterId(id);
-                    commitWorkspaceOrgScope(id);
-                  }}
+                  onChange={setOrgFilterId}
                   includeAllRow={false}
                   selectWhenEmptyLabel="Select a company"
                 />
