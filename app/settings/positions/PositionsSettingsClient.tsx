@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Archive, Loader2, Pencil, Plus, Save, X } from "lucide-react";
+import { Archive, Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useUserRole } from "@/components/UserRoleContext";
 import {
   responsiveFormInput,
@@ -13,6 +13,7 @@ import {
 import {
   archivePositionSettingsAction,
   createPositionSettingsAction,
+  deletePositionPermanentlySettingsAction,
   getPositionsSettingsPageAccessAction,
   listPositionsForOrgSettingsAction,
   updatePositionSettingsAction,
@@ -76,6 +77,7 @@ export default function PositionsSettingsClient() {
   const [loading, setLoading] = useState(true);
   const [accessDenied, setAccessDenied] = useState<"not_authenticated" | "forbidden" | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [canHardDeletePositions, setCanHardDeletePositions] = useState(false);
   const [positions, setPositions] = useState<PositionSettingsRow[]>([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +92,8 @@ export default function PositionsSettingsClient() {
   const [pActive, setPActive] = useState(true);
   const [positionSaving, setPositionSaving] = useState(false);
   const [positionArchiveBusy, setPositionArchiveBusy] = useState(false);
+  const [hardDeleteConfirmCode, setHardDeleteConfirmCode] = useState("");
+  const [positionHardDeleteBusy, setPositionHardDeleteBusy] = useState(false);
 
   const orgHint = workspaceOrganizationId ?? undefined;
 
@@ -127,6 +131,7 @@ export default function PositionsSettingsClient() {
       if (cancelled) return;
       setAccessDenied(access.accessDenied);
       setOrganizationId(access.organizationId);
+      setCanHardDeletePositions(access.canHardDeletePositions);
       if (access.accessDenied) {
         setLoading(false);
         return;
@@ -147,6 +152,7 @@ export default function PositionsSettingsClient() {
     setPLevel("");
     setPParentId("");
     setPActive(true);
+    setHardDeleteConfirmCode("");
     setError(null);
     setMessage(null);
     setPositionModal("create");
@@ -159,9 +165,43 @@ export default function PositionsSettingsClient() {
     setPLevel(row.level != null ? String(row.level) : "");
     setPParentId(row.parent_position_id ?? "");
     setPActive(row.is_active);
+    setHardDeleteConfirmCode("");
     setError(null);
     setMessage(null);
     setPositionModal(row);
+  }
+
+  async function handleHardDeletePosition() {
+    if (positionModal === "create" || !positionModal) return;
+    if (hardDeleteConfirmCode.trim() !== positionModal.code) {
+      setError("Type the position code exactly to confirm permanent delete.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Permanently delete position «${positionModal.title}» (${positionModal.code})? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setPositionHardDeleteBusy(true);
+    try {
+      const res = await deletePositionPermanentlySettingsAction(
+        positionModal.id,
+        hardDeleteConfirmCode,
+        orgHint,
+      );
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setMessage("Position permanently deleted.");
+      setPositionModal(null);
+      setHardDeleteConfirmCode("");
+      await loadPositions();
+    } finally {
+      setPositionHardDeleteBusy(false);
+    }
   }
 
   async function handleArchivePosition() {
@@ -501,21 +541,62 @@ export default function PositionsSettingsClient() {
                 Active
               </label>
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                <div className="min-w-0">
+                <div className="min-w-0 space-y-3">
                   {positionModal !== "create" ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                      disabled={positionArchiveBusy || positionSaving}
-                      onClick={() => void handleArchivePosition()}
-                    >
-                      {positionArchiveBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Archive className="h-4 w-4" />
-                      )}
-                      Archive position
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                        disabled={
+                          positionArchiveBusy || positionSaving || positionHardDeleteBusy
+                        }
+                        onClick={() => void handleArchivePosition()}
+                      >
+                        {positionArchiveBusy ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Archive className="h-4 w-4" />
+                        )}
+                        Archive position
+                      </button>
+                      {canHardDeletePositions ? (
+                        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                          <p className="text-xs text-destructive">
+                            Permanent delete is only for setup mistakes. It is blocked if this
+                            position has children or assignment history.
+                          </p>
+                          <label className={`${LABEL} mt-3`} htmlFor="pos-hard-delete-code">
+                            Type <span className="font-mono">{positionModal.code}</span> to confirm
+                          </label>
+                          <input
+                            id="pos-hard-delete-code"
+                            className={responsiveFormInput}
+                            value={hardDeleteConfirmCode}
+                            onChange={(e) => setHardDeleteConfirmCode(e.target.value)}
+                            autoComplete="off"
+                            placeholder={positionModal.code}
+                          />
+                          <button
+                            type="button"
+                            className="mt-2 inline-flex items-center gap-2 rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                            disabled={
+                              positionHardDeleteBusy ||
+                              positionSaving ||
+                              positionArchiveBusy ||
+                              hardDeleteConfirmCode.trim() !== positionModal.code
+                            }
+                            onClick={() => void handleHardDeletePosition()}
+                          >
+                            {positionHardDeleteBusy ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            Delete permanently
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
@@ -523,14 +604,14 @@ export default function PositionsSettingsClient() {
                     type="button"
                     className={BTN_SECONDARY}
                     onClick={() => setPositionModal(null)}
-                    disabled={positionSaving || positionArchiveBusy}
+                    disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     className={BTN_PRIMARY}
-                    disabled={positionSaving || positionArchiveBusy}
+                    disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}
                   >
                     {positionSaving ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
