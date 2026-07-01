@@ -28,6 +28,9 @@ export type PositionSettingsRow = {
   title: string;
   description: string | null;
   level: number | null;
+  parent_position_id: string | null;
+  parent_position_title: string | null;
+  sort_order: number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -38,6 +41,8 @@ export type CreatePositionSettingsInput = {
   title: string;
   description?: string | null;
   level?: string | number | null;
+  parent_position_id?: string | null;
+  sort_order?: string | number | null;
   is_active: boolean;
   /** Effective org hint for workspace-picker roles only. */
   organization_id?: string | null;
@@ -48,10 +53,78 @@ export type UpdatePositionSettingsInput = {
   title: string;
   description?: string | null;
   level?: string | number | null;
+  parent_position_id?: string | null;
+  sort_order?: string | number | null;
   is_active: boolean;
   /** Effective org hint for workspace-picker roles only. */
   organization_id?: string | null;
 };
+
+type PositionHierarchyNode = {
+  id: string;
+  parent_position_id: string | null;
+};
+
+function parseOptionalSortOrder(sortOrderRaw: string | number | null | undefined): number | null {
+  if (sortOrderRaw == null || String(sortOrderRaw).trim() === "") return null;
+  const n =
+    typeof sortOrderRaw === "number"
+      ? sortOrderRaw
+      : Number.parseInt(String(sortOrderRaw).trim(), 10);
+  return Number.isInteger(n) ? n : null;
+}
+
+function parseOptionalParentPositionId(
+  parentRaw: string | null | undefined,
+): string | null {
+  if (parentRaw == null) return null;
+  const trimmed = String(parentRaw).trim();
+  if (!trimmed || trimmed === "__top_level__") return null;
+  return isUuidString(trimmed) ? trimmed : null;
+}
+
+function collectPositionDescendantIds(
+  positionId: string,
+  nodes: PositionHierarchyNode[],
+): Set<string> {
+  const childrenByParent = new Map<string, string[]>();
+  for (const node of nodes) {
+    if (!node.parent_position_id) continue;
+    const siblings = childrenByParent.get(node.parent_position_id) ?? [];
+    siblings.push(node.id);
+    childrenByParent.set(node.parent_position_id, siblings);
+  }
+
+  const descendants = new Set<string>();
+  const queue = [...(childrenByParent.get(positionId) ?? [])];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || descendants.has(current)) continue;
+    descendants.add(current);
+    queue.push(...(childrenByParent.get(current) ?? []));
+  }
+  return descendants;
+}
+
+function mapPositionHierarchyTriggerError(errorMessage: string): string {
+  const msg = errorMessage.trim();
+  if (/cannot be its own parent/i.test(msg)) {
+    return "A position cannot report to itself.";
+  }
+  if (/would create a cycle/i.test(msg)) {
+    return "That parent would create a circular reporting line.";
+  }
+  if (/is archived/i.test(msg)) {
+    return "Cannot assign an archived position as parent.";
+  }
+  if (/is not active/i.test(msg)) {
+    return "Cannot assign an inactive position as parent.";
+  }
+  if (/does not belong to organization/i.test(msg) || /does not exist/i.test(msg)) {
+    return "Parent position is not valid for this organization.";
+  }
+  return msg;
+}
 
 type ResolvedPositionsSettingsContext =
   | {
@@ -126,6 +199,89 @@ async function resolvePositionsSettingsContext(
   };
 }
 
+async function loadPositionHierarchyNodes(
+  organizationId: string,
+): Promise<{ ok: true; nodes: PositionHierarchyNode[] } | { ok: false; error: string }> {
+  const { data, error } = await supabaseServer
+    .from("positions")
+    .select("id, parent_position_id")
+    .eq("organization_id", organizationId)
+    .is("deleted_at", null);
+  if (error) return { ok: false, error: error.message };
+  const nodes: PositionHierarchyNode[] = (data ?? [])
+    .map((raw) => {
+      const r = raw as unknown as Record<string, unknown>;
+      const id = String(r.id ?? "").trim();
+      if (!id) return null;
+      const parentRaw = r.parent_position_id;
+      const parent_position_id =
+        parentRaw != null && String(parentRaw).trim() ? String(parentRaw).trim() : null;
+      return { id, parent_position_id };
+    })
+    .filter((x): x is PositionHierarchyNode => x != null);
+  return { ok: true, nodes };
+}
+
+async function validateParentPositionSelection(input: {
+  organizationId: string;
+  positionId?: string | null;
+  parentPositionId: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string; fieldErrors?: Record<string, string> }> {
+  if (!input.parentPositionId) return { ok: true };
+  if (input.positionId && input.parentPositionId === input.positionId) {
+    return {
+      ok: false,
+      error: "A position cannot report to itself.",
+      fieldErrors: { parent_position_id: "Cannot select this position as its own parent." },
+    };
+  }
+
+  const { data: parentRow, error: parentErr } = await supabaseServer
+    .from("positions")
+    .select("id, organization_id, deleted_at, is_active")
+    .eq("id", input.parentPositionId)
+    .eq("organization_id", input.organizationId)
+    .maybeSingle();
+  if (parentErr) return { ok: false, error: parentErr.message };
+  if (!parentRow?.id) {
+    return {
+      ok: false,
+      error: "Parent position not found in this organization.",
+      fieldErrors: { parent_position_id: "Invalid parent position." },
+    };
+  }
+  const parent = parentRow as { deleted_at?: string | null; is_active?: boolean };
+  if (parent.deleted_at != null) {
+    return {
+      ok: false,
+      error: "Cannot assign an archived position as parent.",
+      fieldErrors: { parent_position_id: "Archived positions cannot be parents." },
+    };
+  }
+  if (!parent.is_active) {
+    return {
+      ok: false,
+      error: "Cannot assign an inactive position as parent.",
+      fieldErrors: { parent_position_id: "Inactive positions cannot be parents." },
+    };
+  }
+
+  if (input.positionId) {
+    const hierarchy = await loadPositionHierarchyNodes(input.organizationId);
+    if (!hierarchy.ok) return { ok: false, error: hierarchy.error };
+    const descendants = collectPositionDescendantIds(input.positionId, hierarchy.nodes);
+    if (descendants.has(input.parentPositionId)) {
+      return {
+        ok: false,
+        error: "That parent would create a circular reporting line.",
+        fieldErrors: { parent_position_id: "Cannot assign a descendant as parent." },
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
 async function assertPositionInOrganization(
   positionId: string,
   organizationId: string,
@@ -177,12 +333,22 @@ export async function listPositionsForOrgSettingsAction(
   try {
     const { data, error } = await supabaseServer
       .from("positions")
-      .select("id, organization_id, code, title, description, level, is_active, created_at, updated_at")
+      .select(
+        "id, organization_id, code, title, description, level, parent_position_id, sort_order, is_active, created_at, updated_at",
+      )
       .eq("organization_id", ctx.organizationId)
       .is("deleted_at", null)
+      .order("sort_order", { ascending: true, nullsFirst: false })
       .order("title", { ascending: true })
       .order("code", { ascending: true });
     if (error) return { ok: false, error: error.message };
+
+    const titleById = new Map<string, string>();
+    for (const raw of data ?? []) {
+      const r = raw as unknown as Record<string, unknown>;
+      const id = String(r.id ?? "").trim();
+      if (id) titleById.set(id, String(r.title ?? "").trim());
+    }
 
     const rows: PositionSettingsRow[] = (data ?? [])
       .map((raw) => {
@@ -192,6 +358,14 @@ export async function listPositionsForOrgSettingsAction(
         const levelRaw = r.level;
         const level =
           levelRaw != null && Number.isInteger(Number(levelRaw)) ? Number(levelRaw) : null;
+        const sortOrderRaw = r.sort_order;
+        const sort_order =
+          sortOrderRaw != null && Number.isInteger(Number(sortOrderRaw))
+            ? Number(sortOrderRaw)
+            : null;
+        const parentRaw = r.parent_position_id;
+        const parent_position_id =
+          parentRaw != null && String(parentRaw).trim() ? String(parentRaw).trim() : null;
         return {
           id,
           organization_id: String(r.organization_id ?? "").trim(),
@@ -199,6 +373,11 @@ export async function listPositionsForOrgSettingsAction(
           title: String(r.title ?? "").trim(),
           description: r.description != null ? String(r.description) : null,
           level,
+          parent_position_id,
+          parent_position_title: parent_position_id
+            ? (titleById.get(parent_position_id) ?? null)
+            : null,
+          sort_order,
           is_active: Boolean(r.is_active),
           created_at: r.created_at != null ? String(r.created_at) : "",
           updated_at: r.updated_at != null ? String(r.updated_at) : "",
@@ -242,6 +421,27 @@ export async function createPositionSettingsAction(
       ? String(input.description).trim().slice(0, 300)
       : null;
   const level = parsePositionLevel(input.level);
+  const parent_position_id = parseOptionalParentPositionId(input.parent_position_id);
+  const sort_order = parseOptionalSortOrder(input.sort_order);
+  if (input.parent_position_id != null && String(input.parent_position_id).trim() && !parent_position_id) {
+    return {
+      ok: false,
+      error: "Invalid parent position.",
+      fieldErrors: { parent_position_id: "Invalid parent position." },
+    };
+  }
+
+  const parentValidation = await validateParentPositionSelection({
+    organizationId: ctx.organizationId,
+    parentPositionId: parent_position_id,
+  });
+  if (!parentValidation.ok) {
+    return {
+      ok: false,
+      error: parentValidation.error,
+      fieldErrors: parentValidation.fieldErrors,
+    };
+  }
 
   try {
     const { data: orgRow, error: orgErr } = await supabaseServer
@@ -260,6 +460,8 @@ export async function createPositionSettingsAction(
         title,
         description,
         level,
+        parent_position_id,
+        sort_order,
         is_active: Boolean(input.is_active),
         created_by: ctx.actorProfileId,
         updated_by: ctx.actorProfileId,
@@ -274,7 +476,7 @@ export async function createPositionSettingsAction(
           fieldErrors: { code: "Duplicate code for this org." },
         };
       }
-      return { ok: false, error: error.message };
+      return { ok: false, error: mapPositionHierarchyTriggerError(error.message) };
     }
     const newId =
       data && typeof (data as { id?: unknown }).id === "string"
@@ -313,6 +515,28 @@ export async function updatePositionSettingsAction(
       ? String(input.description).trim().slice(0, 300)
       : null;
   const level = parsePositionLevel(input.level);
+  const parent_position_id = parseOptionalParentPositionId(input.parent_position_id);
+  const sort_order = parseOptionalSortOrder(input.sort_order);
+  if (input.parent_position_id != null && String(input.parent_position_id).trim() && !parent_position_id) {
+    return {
+      ok: false,
+      error: "Invalid parent position.",
+      fieldErrors: { parent_position_id: "Invalid parent position." },
+    };
+  }
+
+  const parentValidation = await validateParentPositionSelection({
+    organizationId: ctx.organizationId,
+    positionId: id,
+    parentPositionId: parent_position_id,
+  });
+  if (!parentValidation.ok) {
+    return {
+      ok: false,
+      error: parentValidation.error,
+      fieldErrors: parentValidation.fieldErrors,
+    };
+  }
 
   try {
     const { error } = await supabaseServer
@@ -322,6 +546,8 @@ export async function updatePositionSettingsAction(
         title,
         description,
         level,
+        parent_position_id,
+        sort_order,
         is_active: Boolean(input.is_active),
         updated_by: ctx.actorProfileId,
       })
@@ -336,7 +562,7 @@ export async function updatePositionSettingsAction(
           fieldErrors: { code: "Duplicate code for this org." },
         };
       }
-      return { ok: false, error: error.message };
+      return { ok: false, error: mapPositionHierarchyTriggerError(error.message) };
     }
     return { ok: true };
   } catch (e) {

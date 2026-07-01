@@ -25,6 +25,29 @@ const BTN_PRIMARY =
 const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium transition hover:bg-accent disabled:opacity-50";
 
+function collectDescendantPositionIds(
+  positionId: string,
+  rows: Pick<PositionSettingsRow, "id" | "parent_position_id">[],
+): Set<string> {
+  const childrenByParent = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.parent_position_id) continue;
+    const siblings = childrenByParent.get(row.parent_position_id) ?? [];
+    siblings.push(row.id);
+    childrenByParent.set(row.parent_position_id, siblings);
+  }
+
+  const descendants = new Set<string>();
+  const queue = [...(childrenByParent.get(positionId) ?? [])];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || descendants.has(current)) continue;
+    descendants.add(current);
+    queue.push(...(childrenByParent.get(current) ?? []));
+  }
+  return descendants;
+}
+
 function formatTs(iso: string): string {
   if (!iso?.trim()) return "—";
   const d = new Date(iso);
@@ -63,11 +86,26 @@ export default function PositionsSettingsClient() {
   const [pTitle, setPTitle] = useState("");
   const [pDesc, setPDesc] = useState("");
   const [pLevel, setPLevel] = useState("");
+  const [pParentId, setPParentId] = useState("");
   const [pActive, setPActive] = useState(true);
   const [positionSaving, setPositionSaving] = useState(false);
   const [positionArchiveBusy, setPositionArchiveBusy] = useState(false);
 
   const orgHint = workspaceOrganizationId ?? undefined;
+
+  const excludedParentIds =
+    positionModal !== "create" && positionModal
+      ? collectDescendantPositionIds(positionModal.id, positions)
+      : new Set<string>();
+
+  const parentSelectorOptions = positions.filter((row) => {
+    if (!row.is_active) return false;
+    if (positionModal !== "create" && positionModal) {
+      if (row.id === positionModal.id) return false;
+      if (excludedParentIds.has(row.id)) return false;
+    }
+    return true;
+  });
 
   const loadPositions = useCallback(async () => {
     setPositionsLoading(true);
@@ -107,6 +145,7 @@ export default function PositionsSettingsClient() {
     setPTitle("");
     setPDesc("");
     setPLevel("");
+    setPParentId("");
     setPActive(true);
     setError(null);
     setMessage(null);
@@ -118,6 +157,7 @@ export default function PositionsSettingsClient() {
     setPTitle(row.title);
     setPDesc(row.description ?? "");
     setPLevel(row.level != null ? String(row.level) : "");
+    setPParentId(row.parent_position_id ?? "");
     setPActive(row.is_active);
     setError(null);
     setMessage(null);
@@ -161,6 +201,7 @@ export default function PositionsSettingsClient() {
           title: pTitle,
           description: pDesc || null,
           level: pLevel.trim() === "" ? null : pLevel,
+          parent_position_id: pParentId.trim() === "" ? null : pParentId,
           is_active: pActive,
         });
         if (!res.ok) {
@@ -175,6 +216,7 @@ export default function PositionsSettingsClient() {
           title: pTitle,
           description: pDesc || null,
           level: pLevel.trim() === "" ? null : pLevel,
+          parent_position_id: pParentId.trim() === "" ? null : pParentId,
           is_active: pActive,
         });
         if (!res.ok) {
@@ -285,11 +327,12 @@ export default function PositionsSettingsClient() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] table-fixed border-collapse text-sm">
+              <table className="w-full min-w-[1080px] table-fixed border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-border bg-muted/40 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     <th className="px-3 py-2.5">Title</th>
                     <th className="px-3 py-2.5">Code</th>
+                    <th className="px-3 py-2.5">Parent</th>
                     <th className="w-[80px] px-3 py-2.5">Level</th>
                     <th className="w-[100px] px-3 py-2.5">Status</th>
                     <th className="px-3 py-2.5">Description</th>
@@ -301,7 +344,7 @@ export default function PositionsSettingsClient() {
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                      <td colSpan={9} className="px-3 py-12 text-center text-sm text-muted-foreground">
                         No positions defined yet. Create your first position to use in people
                         assignments.
                       </td>
@@ -312,6 +355,9 @@ export default function PositionsSettingsClient() {
                         <td className="px-3 py-2 align-middle font-medium">{row.title}</td>
                         <td className="px-3 py-2 align-middle font-mono text-xs text-muted-foreground">
                           {row.code}
+                        </td>
+                        <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                          {row.parent_position_title ?? "Top level"}
                         </td>
                         <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
                           {row.level != null ? row.level : "—"}
@@ -408,6 +454,27 @@ export default function PositionsSettingsClient() {
                 />
               </div>
               <div>
+                <label className={LABEL} htmlFor="pos-parent">
+                  Parent position
+                </label>
+                <select
+                  id="pos-parent"
+                  className={responsiveFormInput}
+                  value={pParentId}
+                  onChange={(e) => setPParentId(e.target.value)}
+                >
+                  <option value="">Top-level position / No parent</option>
+                  {parentSelectorOptions.map((row) => (
+                    <option key={row.id} value={row.id}>
+                      {row.title} ({row.code})
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Sets the reporting line for this position in the organization chart.
+                </p>
+              </div>
+              <div>
                 <label className={LABEL} htmlFor="pos-level">
                   Level
                 </label>
@@ -421,7 +488,8 @@ export default function PositionsSettingsClient() {
                   step={1}
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Optional hierarchy level for org chart ordering.
+                  Optional. Used for ordering job titles only. Reporting lines are set by the
+                  parent position.
                 </p>
               </div>
               <label className="flex cursor-pointer items-center gap-2 text-sm">
