@@ -153,7 +153,8 @@ export function useRbacPermissions(): RbacPermissions {
 
       canSeeCreateOrganization: canPlatformSettings,
 
-      canSeePlatformAccess: canManagePlatformAccessCatalog(actorCanonicalRoleKey),
+      canSeePlatformAccess:
+        canManagePlatformAccessCatalog(actorCanonicalRoleKey) && isPlatformShellView,
 
       // Tenant org branding: canonical role keys only (not 5-tier UI labels).
       canEditTenantBranding: canEditTenantOrganizationBrandingByRoleKey(canonicalRoleKey),

@@ -4,7 +4,7 @@ import React, { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  ArrowLeft, Archive, Loader2, Pencil, Plus, Save, Trash2, X,
+  ArrowLeft, Archive, Loader2, Pencil, Plus, RotateCcw, Save, Trash2, X,
 } from "lucide-react";
 import { PageHeaderWithInfo } from "../components/page-header-with-info";
 import { useUserRole } from "../../../components/UserRoleContext";
@@ -14,17 +14,20 @@ import {
   createPositionAccessAction,
   createRoleAccessAction,
   deleteGroupAccessAction,
+  deletePositionPermanentlyAccessAction,
   deleteRoleAccessAction,
   getPlatformAccessPageAccessAction,
   listGroupsForOrganizationAccessAction,
   listOrganizationsForAccessAction,
   listPositionsAccessAction,
   listRolesCatalogAction,
+  restorePositionAccessAction,
   updateGroupAccessAction,
   updatePositionAccessAction,
   updateRoleAccessAction,
   type GroupCatalogRow,
   type OrganizationOptionRow,
+  type PositionCatalogFilter,
   type PositionCatalogRow,
   type RoleCatalogRow,
 } from "./access-actions";
@@ -45,6 +48,12 @@ const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium transition hover:bg-accent disabled:opacity-50";
 
 type TabKey = "roles" | "groups" | "positions";
+
+const POSITION_FILTER_OPTIONS: { value: PositionCatalogFilter; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "archived", label: "Archived" },
+  { value: "all", label: "All" },
+];
 
 function formatTs(iso: string): string {
   if (!iso?.trim()) return "—";
@@ -77,7 +86,20 @@ function GroupTypeBadge({ type }: { type: GroupType }) {
   );
 }
 
-function PositionStatusBadge({ isActive }: { isActive: boolean }) {
+function PositionStatusBadge({
+  isActive,
+  isArchived,
+}: {
+  isActive: boolean;
+  isArchived: boolean;
+}) {
+  if (isArchived) {
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-300">
+        Archived
+      </span>
+    );
+  }
   return (
     <span
       className={[
@@ -98,6 +120,7 @@ function RoleGroupCatalogInner() {
 
   const [loadingGate, setLoadingGate] = useState(true);
   const [accessDenied, setAccessDenied] = useState<"not_authenticated" | "forbidden" | null>(null);
+  const [canHardDeletePositions, setCanHardDeletePositions] = useState(false);
   const [tab, setTab] = useState<TabKey>("roles");
 
   const [roles, setRoles] = useState<RoleCatalogRow[]>([]);
@@ -106,12 +129,16 @@ function RoleGroupCatalogInner() {
   const [roleDeleteBusy, setRoleDeleteBusy] = useState(false);
   const [groupDeleteBusy, setGroupDeleteBusy] = useState(false);
   const [positionArchiveBusy, setPositionArchiveBusy] = useState(false);
+  const [positionRestoreBusyId, setPositionRestoreBusyId] = useState<string | null>(null);
+  const [positionHardDeleteBusy, setPositionHardDeleteBusy] = useState(false);
+  const [hardDeleteConfirmCode, setHardDeleteConfirmCode] = useState("");
   const [orgs, setOrgs] = useState<OrganizationOptionRow[]>([]);
   const [orgFilterId, setOrgFilterId] = useState("");
   const [groups, setGroups] = useState<GroupCatalogRow[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [positions, setPositions] = useState<PositionCatalogRow[]>([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
+  const [positionFilter, setPositionFilter] = useState<PositionCatalogFilter>("active");
 
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -171,13 +198,13 @@ function RoleGroupCatalogInner() {
     setGroups(res.rows);
   }, [showToast]);
 
-  const loadPositions = useCallback(async (oid: string) => {
+  const loadPositions = useCallback(async (oid: string, filter: PositionCatalogFilter) => {
     if (!oid.trim()) {
       setPositions([]);
       return;
     }
     setPositionsLoading(true);
-    const res = await listPositionsAccessAction(oid);
+    const res = await listPositionsAccessAction(oid, filter);
     setPositionsLoading(false);
     if (!res.ok) {
       showToast(res.error, false);
@@ -193,10 +220,12 @@ function RoleGroupCatalogInner() {
       if (cancelled) return;
       if (access.accessDenied) {
         setAccessDenied(access.accessDenied);
+        setCanHardDeletePositions(false);
         setLoadingGate(false);
         return;
       }
       setAccessDenied(null);
+      setCanHardDeletePositions(access.canHardDeletePositions);
       setLoadingGate(false);
       await loadRoles();
       await loadOrgs();
@@ -213,8 +242,8 @@ function RoleGroupCatalogInner() {
 
   useEffect(() => {
     if (!orgFilterId || tab !== "positions") return;
-    void loadPositions(orgFilterId);
-  }, [orgFilterId, tab, loadPositions]);
+    void loadPositions(orgFilterId, positionFilter);
+  }, [orgFilterId, tab, positionFilter, loadPositions]);
 
   const visibleRoles = React.useMemo(() => {
     if (!roleScopeFilter) return roles;
@@ -289,6 +318,7 @@ function RoleGroupCatalogInner() {
     setPDesc("");
     setPLevel("");
     setPActive(true);
+    setHardDeleteConfirmCode("");
     setPositionModal("create");
   }
 
@@ -299,8 +329,12 @@ function RoleGroupCatalogInner() {
     setPDesc(row.description ?? "");
     setPLevel(row.level != null ? String(row.level) : "");
     setPActive(row.is_active);
+    setHardDeleteConfirmCode("");
     setPositionModal(row);
   }
+
+  const isArchivedPositionModal =
+    positionModal !== "create" && positionModal?.is_archived === true;
 
   async function submitRole(e: React.FormEvent) {
     e.preventDefault();
@@ -426,31 +460,91 @@ function RoleGroupCatalogInner() {
   }
 
   async function handleArchivePosition() {
-    if (positionModal === "create" || !positionModal) return;
+    if (positionModal === "create" || !positionModal || !orgFilterId) return;
     if (
       !window.confirm(
-        `Archive position «${positionModal.title}» (${positionModal.code})? It will be deactivated and hidden from this catalog.`,
+        `Archive position «${positionModal.title}» (${positionModal.code})? It will be deactivated and moved to the Archived view.`,
       )
     ) {
       return;
     }
     setPositionArchiveBusy(true);
     try {
-      const res = await archivePositionAccessAction(positionModal.id);
+      const res = await archivePositionAccessAction(positionModal.id, orgFilterId);
       if (!res.ok) {
         showToast(res.error, false);
         return;
       }
       showToast("Position archived.", true);
       setPositionModal(null);
-      if (orgFilterId) await loadPositions(orgFilterId);
+      await loadPositions(orgFilterId, positionFilter);
     } finally {
       setPositionArchiveBusy(false);
     }
   }
 
+  async function handleRestorePosition(row: PositionCatalogRow) {
+    if (!orgFilterId) return;
+    if (
+      !window.confirm(
+        `Restore position «${row.title}» (${row.code})? It will become active again.`,
+      )
+    ) {
+      return;
+    }
+    setPositionRestoreBusyId(row.id);
+    try {
+      const res = await restorePositionAccessAction(row.id, orgFilterId);
+      if (!res.ok) {
+        showToast(res.error, false);
+        return;
+      }
+      showToast("Position restored.", true);
+      if (positionModal && positionModal !== "create" && positionModal.id === row.id) {
+        setPositionModal(null);
+      }
+      await loadPositions(orgFilterId, positionFilter);
+    } finally {
+      setPositionRestoreBusyId(null);
+    }
+  }
+
+  async function handleHardDeletePosition() {
+    if (positionModal === "create" || !positionModal || !orgFilterId) return;
+    if (hardDeleteConfirmCode.trim() !== positionModal.code) {
+      showToast("Type the position code exactly to confirm permanent delete.", false);
+      return;
+    }
+    if (
+      !window.confirm(
+        `Permanently delete position «${positionModal.title}» (${positionModal.code})? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setPositionHardDeleteBusy(true);
+    try {
+      const res = await deletePositionPermanentlyAccessAction(
+        positionModal.id,
+        hardDeleteConfirmCode,
+        orgFilterId,
+      );
+      if (!res.ok) {
+        showToast(res.error, false);
+        return;
+      }
+      showToast("Position permanently deleted.", true);
+      setPositionModal(null);
+      setHardDeleteConfirmCode("");
+      await loadPositions(orgFilterId, positionFilter);
+    } finally {
+      setPositionHardDeleteBusy(false);
+    }
+  }
+
   async function submitPosition(e: React.FormEvent) {
     e.preventDefault();
+    if (isArchivedPositionModal) return;
     setPositionSaving(true);
     try {
       if (positionModal === "create") {
@@ -482,7 +576,7 @@ function RoleGroupCatalogInner() {
         showToast("Position updated.", true);
       }
       setPositionModal(null);
-      if (orgFilterId) await loadPositions(orgFilterId);
+      if (orgFilterId) await loadPositions(orgFilterId, positionFilter);
     } finally {
       setPositionSaving(false);
     }
@@ -541,7 +635,7 @@ function RoleGroupCatalogInner() {
 
       <PageHeaderWithInfo title="Role, group & position catalog" infoAriaLabel="About the access catalog">
         <p>
-          Create and edit role definitions, organization-scoped groups, and position catalog entries. System roles in use cannot be deleted; positions are archived (soft-deleted), not removed.
+          Create and edit role definitions, organization-scoped groups, and position catalog entries. System roles in use cannot be deleted. Positions are archived in tenant settings; permanent delete is platform-only for clean test data.
         </p>
       </PageHeaderWithInfo>
 
@@ -795,6 +889,26 @@ function RoleGroupCatalogInner() {
               New position
             </button>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Show
+            </span>
+            {POSITION_FILTER_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={[
+                  "rounded-md border px-3 py-1.5 text-sm font-medium transition",
+                  positionFilter === opt.value
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+                ].join(" ")}
+                onClick={() => setPositionFilter(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <div className="rounded-xl border border-border bg-card shadow-sm">
             {positionsLoading ? (
               <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
@@ -820,40 +934,85 @@ function RoleGroupCatalogInner() {
                     {positions.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-3 py-12 text-center text-sm text-muted-foreground">
-                          No positions for this organization.
+                          {positionFilter === "archived"
+                            ? "No archived positions for this organization."
+                            : positionFilter === "all"
+                              ? "No positions for this organization."
+                              : "No active positions for this organization."}
                         </td>
                       </tr>
                     ) : (
                       positions.map((row) => (
-                        <tr key={row.id} className="border-b border-border last:border-0">
-                          <td className="px-3 py-2 align-middle font-medium">{row.title}</td>
-                          <td className="px-3 py-2 align-middle font-mono text-xs text-muted-foreground">{row.code}</td>
-                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                        <tr
+                          key={row.id}
+                          className={[
+                            "border-b border-border last:border-0",
+                            row.is_archived ? "bg-muted/20 text-muted-foreground" : "",
+                          ].join(" ")}
+                        >
+                          <td
+                            className={[
+                              "px-3 py-2 align-middle font-medium",
+                              row.is_archived ? "opacity-70" : "",
+                            ].join(" ")}
+                          >
+                            {row.title}
+                          </td>
+                          <td className="px-3 py-2 align-middle font-mono text-xs opacity-80">{row.code}</td>
+                          <td className="px-3 py-2 align-middle text-xs opacity-80">
                             {row.level != null ? row.level : "—"}
                           </td>
                           <td className="px-3 py-2 align-middle">
-                            <PositionStatusBadge isActive={row.is_active} />
+                            <PositionStatusBadge isActive={row.is_active} isArchived={row.is_archived} />
                           </td>
-                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                          <td className="px-3 py-2 align-middle text-xs opacity-80">
                             <span className="line-clamp-2" title={row.description ?? undefined}>
                               {row.description ?? "—"}
                             </span>
                           </td>
-                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                          <td className="px-3 py-2 align-middle text-xs opacity-80 whitespace-nowrap">
                             {formatTs(row.updated_at)}
                           </td>
-                          <td className="px-3 py-2 align-middle text-xs text-muted-foreground whitespace-nowrap">
+                          <td className="px-3 py-2 align-middle text-xs opacity-80 whitespace-nowrap">
                             {formatTs(row.created_at)}
                           </td>
                           <td className="px-3 py-2 align-middle text-right">
-                            <button
-                              type="button"
-                              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                              aria-label="Edit position"
-                              onClick={() => openEditPosition(row)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              {row.is_archived ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                    aria-label="View archived position"
+                                    onClick={() => openEditPosition(row)}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="rounded-md p-1.5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
+                                    aria-label="Restore position"
+                                    disabled={positionRestoreBusyId === row.id}
+                                    onClick={() => void handleRestorePosition(row)}
+                                  >
+                                    {positionRestoreBusyId === row.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <RotateCcw className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  aria-label="Edit position"
+                                  onClick={() => openEditPosition(row)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1111,12 +1270,106 @@ function RoleGroupCatalogInner() {
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-bold">
-                {positionModal === "create" ? "New position" : "Edit position"}
+                {positionModal === "create"
+                  ? "New position"
+                  : isArchivedPositionModal
+                    ? "Archived position"
+                    : "Edit position"}
               </h2>
               <button type="button" className="rounded-md p-1 text-muted-foreground hover:bg-muted" onClick={() => setPositionModal(null)}>
                 <X className="h-5 w-5" />
               </button>
             </div>
+            {isArchivedPositionModal ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  This position is archived. Restore it to use in assignments or edit details.
+                </div>
+                <dl className="space-y-3 text-sm">
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Code</dt>
+                    <dd className="mt-1 font-mono">{positionModal.code}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Title</dt>
+                    <dd className="mt-1">{positionModal.title}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Level</dt>
+                    <dd className="mt-1">{positionModal.level != null ? positionModal.level : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</dt>
+                    <dd className="mt-1">
+                      <PositionStatusBadge
+                        isActive={positionModal.is_active}
+                        isArchived={positionModal.is_archived}
+                      />
+                    </dd>
+                  </div>
+                </dl>
+                <div className="flex flex-wrap items-start justify-between gap-3 pt-2">
+                  <div className="min-w-0 space-y-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md border border-emerald-500/50 bg-background px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-500/10 disabled:opacity-50 dark:text-emerald-400"
+                      disabled={positionRestoreBusyId === positionModal.id || positionHardDeleteBusy}
+                      onClick={() => void handleRestorePosition(positionModal)}
+                    >
+                      {positionRestoreBusyId === positionModal.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
+                      )}
+                      Restore position
+                    </button>
+                    {canHardDeletePositions ? (
+                      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                        <p className="text-xs text-destructive">
+                          Permanent delete is only for setup mistakes. It is blocked if this position has children or assignment history.
+                        </p>
+                        <label className={`${LABEL} mt-3`} htmlFor="catalog-pos-hard-delete-code">
+                          Type <span className="font-mono">{positionModal.code}</span> to confirm
+                        </label>
+                        <input
+                          id="catalog-pos-hard-delete-code"
+                          className={INPUT}
+                          value={hardDeleteConfirmCode}
+                          onChange={(e) => setHardDeleteConfirmCode(e.target.value)}
+                          autoComplete="off"
+                          placeholder={positionModal.code}
+                        />
+                        <button
+                          type="button"
+                          className="mt-2 inline-flex items-center gap-2 rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                          disabled={
+                            positionHardDeleteBusy ||
+                            positionRestoreBusyId === positionModal.id ||
+                            hardDeleteConfirmCode.trim() !== positionModal.code
+                          }
+                          onClick={() => void handleHardDeletePosition()}
+                        >
+                          {positionHardDeleteBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                          Delete permanently
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    className={BTN_SECONDARY}
+                    onClick={() => setPositionModal(null)}
+                    disabled={positionRestoreBusyId === positionModal.id || positionHardDeleteBusy}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={(e) => void submitPosition(e)} className="space-y-4">
               <div>
                 <label className={LABEL} htmlFor="np-org">Organization <span className="text-destructive">*</span></label>
@@ -1193,30 +1446,69 @@ function RoleGroupCatalogInner() {
                 Active
               </label>
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                <div className="min-w-0">
+                <div className="min-w-0 space-y-3">
                   {positionModal !== "create" ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                      disabled={positionArchiveBusy || positionSaving}
-                      onClick={() => void handleArchivePosition()}
-                    >
-                      {positionArchiveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
-                      Archive position
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                        disabled={positionArchiveBusy || positionSaving || positionHardDeleteBusy}
+                        onClick={() => void handleArchivePosition()}
+                      >
+                        {positionArchiveBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                        Archive position
+                      </button>
+                      {canHardDeletePositions ? (
+                        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                          <p className="text-xs text-destructive">
+                            Permanent delete is only for setup mistakes. It is blocked if this position has children or assignment history.
+                          </p>
+                          <label className={`${LABEL} mt-3`} htmlFor="catalog-pos-hard-delete-code-active">
+                            Type <span className="font-mono">{positionModal.code}</span> to confirm
+                          </label>
+                          <input
+                            id="catalog-pos-hard-delete-code-active"
+                            className={INPUT}
+                            value={hardDeleteConfirmCode}
+                            onChange={(e) => setHardDeleteConfirmCode(e.target.value)}
+                            autoComplete="off"
+                            placeholder={positionModal.code}
+                          />
+                          <button
+                            type="button"
+                            className="mt-2 inline-flex items-center gap-2 rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                            disabled={
+                              positionHardDeleteBusy ||
+                              positionSaving ||
+                              positionArchiveBusy ||
+                              hardDeleteConfirmCode.trim() !== positionModal.code
+                            }
+                            onClick={() => void handleHardDeletePosition()}
+                          >
+                            {positionHardDeleteBusy ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            Delete permanently
+                          </button>
+                        </div>
+                      ) : null}
+                    </>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
-                  <button type="button" className={BTN_SECONDARY} onClick={() => setPositionModal(null)} disabled={positionSaving || positionArchiveBusy}>
+                  <button type="button" className={BTN_SECONDARY} onClick={() => setPositionModal(null)} disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}>
                     Cancel
                   </button>
-                  <button type="submit" className={BTN_PRIMARY} disabled={positionSaving || positionArchiveBusy}>
+                  <button type="submit" className={BTN_PRIMARY} disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}>
                     {positionSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     Save
                   </button>
                 </div>
               </div>
             </form>
+            )}
           </div>
         </div>
       ) : null}

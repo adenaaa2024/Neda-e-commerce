@@ -1,6 +1,14 @@
 "use server";
 
 import { supabaseServer } from "../../../lib/supabase-server";
+import { isSuperAdminRole, loadTenantProfile } from "../../../lib/server-tenant";
+import {
+  assertPositionArchiveAllowed,
+  assertPositionHardDeleteAllowed,
+  assertPositionRestoreParentValid,
+  normalizePositionConfirmationCode,
+  POSITION_HARD_DELETE_BLOCKED_MSG,
+} from "../../../lib/positions/position-lifecycle";
 import { isUuidString } from "../../../lib/uuid";
 import {
   collectGroupCreateErrors,
@@ -24,20 +32,28 @@ function splitJoined<T>(raw: unknown): T | null {
 
 export type PlatformAccessPageAccess = {
   accessDenied: "not_authenticated" | "forbidden" | null;
+  /** Super Admin only — enables permanent delete in platform catalog. */
+  canHardDeletePositions: boolean;
 };
 
 async function gate(): Promise<
-  { ok: true } | { ok: false; denied: "not_authenticated" | "forbidden" }
+  { ok: true; actorProfileId: string } | { ok: false; denied: "not_authenticated" | "forbidden" }
 > {
   const g = await assertManagePlatformAccess();
   if (!g.ok) return g;
-  return { ok: true };
+  return { ok: true, actorProfileId: g.actorProfileId };
 }
 
 export async function getPlatformAccessPageAccessAction(): Promise<PlatformAccessPageAccess> {
-  const g = await gate();
-  if (!g.ok) return { accessDenied: g.denied };
-  return { accessDenied: null };
+  const g = await assertManagePlatformAccess();
+  if (!g.ok) {
+    return { accessDenied: g.denied, canHardDeletePositions: false };
+  }
+  const profile = await loadTenantProfile(g.actorProfileId);
+  return {
+    accessDenied: null,
+    canHardDeletePositions: isSuperAdminRole(profile?.role ?? null),
+  };
 }
 
 export type RoleCatalogRow = {
@@ -496,6 +512,8 @@ export async function deleteRoleAccessAction(
   }
 }
 
+export type PositionCatalogFilter = "active" | "archived" | "all";
+
 export type PositionCatalogRow = {
   id: string;
   organization_id: string;
@@ -505,12 +523,22 @@ export type PositionCatalogRow = {
   description: string | null;
   level: number | null;
   is_active: boolean;
+  deleted_at: string | null;
+  is_archived: boolean;
   created_at: string;
   updated_at: string;
 };
 
+function normalizePositionCatalogFilter(
+  filter: PositionCatalogFilter | string | null | undefined,
+): PositionCatalogFilter {
+  if (filter === "archived" || filter === "all") return filter;
+  return "active";
+}
+
 export async function listPositionsAccessAction(
   organizationId: string,
+  filter: PositionCatalogFilter = "active",
 ): Promise<{ ok: true; rows: PositionCatalogRow[] } | { ok: false; error: string }> {
   const g = await gate();
   if (!g.ok) {
@@ -518,15 +546,22 @@ export async function listPositionsAccessAction(
   }
   const oid = organizationId.trim();
   if (!isUuidString(oid)) return { ok: false, error: "Invalid organization." };
+  const normalizedFilter = normalizePositionCatalogFilter(filter);
   try {
-    const { data, error } = await supabaseServer
+    let query = supabaseServer
       .from("positions")
       .select(
-        "id, organization_id, code, title, description, level, is_active, created_at, updated_at, organizations(name)",
+        "id, organization_id, code, title, description, level, is_active, deleted_at, created_at, updated_at, organizations(name)",
       )
-      .eq("organization_id", oid)
-      .is("deleted_at", null)
-      .order("title", { ascending: true });
+      .eq("organization_id", oid);
+
+    if (normalizedFilter === "active") {
+      query = query.is("deleted_at", null);
+    } else if (normalizedFilter === "archived") {
+      query = query.not("deleted_at", "is", null);
+    }
+
+    const { data, error } = await query.order("title", { ascending: true });
     if (error) return { ok: false, error: error.message };
     const rows: PositionCatalogRow[] = (data ?? []).map((raw) => {
       const r = raw as unknown as Record<string, unknown>;
@@ -538,6 +573,9 @@ export async function listPositionsAccessAction(
       const levelRaw = r.level;
       const level =
         levelRaw != null && Number.isInteger(Number(levelRaw)) ? Number(levelRaw) : null;
+      const deletedAtRaw = r.deleted_at;
+      const deleted_at =
+        deletedAtRaw != null && String(deletedAtRaw).trim() ? String(deletedAtRaw).trim() : null;
       return {
         id: String(r.id ?? ""),
         organization_id: String(r.organization_id ?? "").trim(),
@@ -547,6 +585,8 @@ export async function listPositionsAccessAction(
         description: r.description != null ? String(r.description) : null,
         level,
         is_active: Boolean(r.is_active),
+        deleted_at,
+        is_archived: deleted_at != null,
         created_at: r.created_at != null ? String(r.created_at) : "",
         updated_at: r.updated_at != null ? String(r.updated_at) : "",
       };
@@ -689,24 +729,32 @@ export async function updatePositionAccessAction(
 
 export async function archivePositionAccessAction(
   id: string,
+  organizationId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await assertManagePlatformAccess();
   if (!g.ok) {
     return { ok: false, error: g.denied === "not_authenticated" ? "Not authenticated." : "Forbidden." };
   }
   if (!isUuidString(id)) return { ok: false, error: "Invalid position id." };
+  const oid = organizationId.trim();
+  if (!isUuidString(oid)) return { ok: false, error: "Invalid organization." };
   try {
     const { data: row, error: fetchErr } = await supabaseServer
       .from("positions")
-      .select("id, deleted_at")
+      .select("id, deleted_at, organization_id")
       .eq("id", id)
+      .eq("organization_id", oid)
       .maybeSingle();
     if (fetchErr) return { ok: false, error: fetchErr.message };
-    if (!row) return { ok: false, error: "Position not found." };
+    if (!row) return { ok: false, error: "Position not found in this organization." };
     const r = row as { deleted_at?: string | null };
     if (r.deleted_at != null) {
       return { ok: false, error: "Position is already archived." };
     }
+
+    const archiveGuard = await assertPositionArchiveAllowed(id, oid);
+    if (!archiveGuard.ok) return { ok: false, error: archiveGuard.error };
+
     const now = new Date().toISOString();
     const { error } = await supabaseServer
       .from("positions")
@@ -716,11 +764,124 @@ export async function archivePositionAccessAction(
         updated_by: g.actorProfileId,
       })
       .eq("id", id)
+      .eq("organization_id", oid)
       .is("deleted_at", null);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Archive failed." };
+  }
+}
+
+export async function restorePositionAccessAction(
+  positionId: string,
+  organizationId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await assertManagePlatformAccess();
+  if (!g.ok) {
+    return { ok: false, error: g.denied === "not_authenticated" ? "Not authenticated." : "Forbidden." };
+  }
+  if (!isUuidString(positionId)) return { ok: false, error: "Invalid position id." };
+  const oid = organizationId.trim();
+  if (!isUuidString(oid)) return { ok: false, error: "Invalid organization." };
+  try {
+    const { data: row, error: fetchErr } = await supabaseServer
+      .from("positions")
+      .select("id, deleted_at, parent_position_id, organization_id")
+      .eq("id", positionId)
+      .eq("organization_id", oid)
+      .maybeSingle();
+    if (fetchErr) return { ok: false, error: fetchErr.message };
+    if (!row?.id) return { ok: false, error: "Position not found in this organization." };
+
+    const r = row as { deleted_at?: string | null; parent_position_id?: string | null };
+    if (r.deleted_at == null) {
+      return { ok: false, error: "Only archived positions can be restored." };
+    }
+
+    const parentPositionId =
+      r.parent_position_id != null && String(r.parent_position_id).trim()
+        ? String(r.parent_position_id).trim()
+        : null;
+    const parentCheck = await assertPositionRestoreParentValid(parentPositionId, oid);
+    if (!parentCheck.ok) return { ok: false, error: parentCheck.error };
+
+    const now = new Date().toISOString();
+    const { error } = await supabaseServer
+      .from("positions")
+      .update({
+        deleted_at: null,
+        is_active: true,
+        updated_at: now,
+        updated_by: g.actorProfileId,
+      })
+      .eq("id", positionId)
+      .eq("organization_id", oid)
+      .not("deleted_at", "is", null);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Restore failed." };
+  }
+}
+
+export async function deletePositionPermanentlyAccessAction(
+  positionId: string,
+  confirmationCode: string,
+  organizationId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const g = await assertManagePlatformAccess();
+  if (!g.ok) {
+    return { ok: false, error: g.denied === "not_authenticated" ? "Not authenticated." : "Forbidden." };
+  }
+  const profile = await loadTenantProfile(g.actorProfileId);
+  if (!isSuperAdminRole(profile?.role ?? null)) {
+    return { ok: false, error: "Forbidden." };
+  }
+  if (!isUuidString(positionId)) return { ok: false, error: "Invalid position id." };
+  const oid = organizationId.trim();
+  if (!isUuidString(oid)) return { ok: false, error: "Invalid organization." };
+
+  const typedCode = normalizePositionConfirmationCode(confirmationCode);
+  if (!typedCode) {
+    return { ok: false, error: "Type the position code to confirm permanent delete." };
+  }
+
+  try {
+    const { data: row, error: fetchErr } = await supabaseServer
+      .from("positions")
+      .select("id, code, organization_id")
+      .eq("id", positionId)
+      .eq("organization_id", oid)
+      .maybeSingle();
+    if (fetchErr) return { ok: false, error: fetchErr.message };
+    if (!row?.id) return { ok: false, error: "Position not found in this organization." };
+
+    const storedCode = normalizePositionConfirmationCode(String((row as { code?: unknown }).code ?? ""));
+    if (typedCode !== storedCode) {
+      return { ok: false, error: "Position code does not match. Permanent delete cancelled." };
+    }
+
+    const deleteGuard = await assertPositionHardDeleteAllowed(positionId, oid);
+    if (!deleteGuard.ok) return { ok: false, error: deleteGuard.error };
+
+    const { error: deleteErr } = await supabaseServer
+      .from("positions")
+      .delete()
+      .eq("id", positionId)
+      .eq("organization_id", oid);
+    if (deleteErr) {
+      if (deleteErr.code === "23503") {
+        return { ok: false, error: POSITION_HARD_DELETE_BLOCKED_MSG };
+      }
+      return { ok: false, error: deleteErr.message };
+    }
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : "Permanent delete failed.",
+    };
   }
 }
 

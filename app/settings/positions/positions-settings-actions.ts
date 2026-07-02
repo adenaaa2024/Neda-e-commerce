@@ -3,7 +3,10 @@
 import { supabaseServer } from "../../../lib/supabase-server";
 import { getSessionUserIdFromCookies } from "../../../lib/supabase-server-auth";
 import { resolveEffectiveCompanyOrganizationId } from "../../../lib/resolve-effective-company-organization";
-import { isSuperAdminRole } from "../../../lib/server-tenant";
+import {
+  assertPositionArchiveAllowed,
+  assertPositionRestoreParentValid,
+} from "../../../lib/positions/position-lifecycle";
 import {
   canEditTenantOrganizationBrandingByRoleKey,
   normalizeRoleKeyForBranding,
@@ -20,18 +23,7 @@ export type PositionsSettingsPageAccess = {
   accessDenied: "not_authenticated" | "forbidden" | null;
   organizationId: string | null;
   actorProfileId: string | null;
-  /** Super Admin / Platform Owner only — enables permanent delete in edit modal. */
-  canHardDeletePositions: boolean;
 };
-
-const ARCHIVE_CHILD_BLOCK_MSG =
-  "This position has child positions. Move or archive child positions first.";
-
-const HARD_DELETE_BLOCKED_MSG =
-  "This position has assignment history or child positions and cannot be permanently deleted. Archive it instead.";
-
-const RESTORE_PARENT_BLOCKED_MSG =
-  "This position cannot be restored because its parent position is archived or inactive. Restore or change the parent first.";
 
 export type PositionSettingsFilter = "active" | "archived" | "all";
 
@@ -195,50 +187,6 @@ function canManagePositionsSettings(roleKey: string | null): boolean {
   return canEditTenantOrganizationBrandingByRoleKey(roleKey);
 }
 
-function canHardDeletePositionsSettings(roleKey: string | null): boolean {
-  return isSuperAdminRole(roleKey);
-}
-
-async function countActiveChildPositions(
-  positionId: string,
-  organizationId: string,
-): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
-  const { count, error } = await supabaseServer
-    .from("positions")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .eq("parent_position_id", positionId)
-    .is("deleted_at", null);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, count: count ?? 0 };
-}
-
-async function countAllChildPositions(
-  positionId: string,
-  organizationId: string,
-): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
-  const { count, error } = await supabaseServer
-    .from("positions")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .eq("parent_position_id", positionId);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, count: count ?? 0 };
-}
-
-async function countPositionAssignmentReferences(
-  positionId: string,
-  organizationId: string,
-): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
-  const { count, error } = await supabaseServer
-    .from("profile_position_assignments")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .eq("position_id", positionId);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, count: count ?? 0 };
-}
-
 async function resolvePositionsSettingsContext(
   organizationIdHint?: string | null,
 ): Promise<ResolvedPositionsSettingsContext> {
@@ -371,15 +319,12 @@ export async function getPositionsSettingsPageAccessAction(
       accessDenied: ctx.denied,
       organizationId: null,
       actorProfileId: null,
-      canHardDeletePositions: false,
     };
   }
-  const actor = await getAuthenticatedPositionsSettingsActor();
   return {
     accessDenied: null,
     organizationId: ctx.organizationId,
     actorProfileId: ctx.actorProfileId,
-    canHardDeletePositions: canHardDeletePositionsSettings(actor?.roleKey ?? null),
   };
 }
 
@@ -708,22 +653,8 @@ export async function restorePositionSettingsAction(
       r.parent_position_id != null && String(r.parent_position_id).trim()
         ? String(r.parent_position_id).trim()
         : null;
-    if (parentPositionId) {
-      const { data: parentRow, error: parentErr } = await supabaseServer
-        .from("positions")
-        .select("id, organization_id, deleted_at, is_active")
-        .eq("id", parentPositionId)
-        .eq("organization_id", ctx.organizationId)
-        .maybeSingle();
-      if (parentErr) return { ok: false, error: parentErr.message };
-      if (!parentRow?.id) {
-        return { ok: false, error: RESTORE_PARENT_BLOCKED_MSG };
-      }
-      const parent = parentRow as { deleted_at?: string | null; is_active?: boolean };
-      if (parent.deleted_at != null || !parent.is_active) {
-        return { ok: false, error: RESTORE_PARENT_BLOCKED_MSG };
-      }
-    }
+    const parentCheck = await assertPositionRestoreParentValid(parentPositionId, ctx.organizationId);
+    if (!parentCheck.ok) return { ok: false, error: parentCheck.error };
 
     const now = new Date().toISOString();
     const { error } = await supabaseServer
@@ -771,11 +702,8 @@ export async function archivePositionSettingsAction(
       return { ok: false, error: "Position is already archived." };
     }
 
-    const childCheck = await countActiveChildPositions(id, ctx.organizationId);
-    if (!childCheck.ok) return { ok: false, error: childCheck.error };
-    if (childCheck.count > 0) {
-      return { ok: false, error: ARCHIVE_CHILD_BLOCK_MSG };
-    }
+    const archiveGuard = await assertPositionArchiveAllowed(id, ctx.organizationId);
+    if (!archiveGuard.ok) return { ok: false, error: archiveGuard.error };
 
     const now = new Date().toISOString();
     const { error } = await supabaseServer
@@ -792,79 +720,5 @@ export async function archivePositionSettingsAction(
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Archive failed." };
-  }
-}
-
-export async function deletePositionPermanentlySettingsAction(
-  positionId: string,
-  confirmationCode: string,
-  organizationIdHint?: string | null,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const actor = await getAuthenticatedPositionsSettingsActor();
-  if (!actor || !actor.roleKey) {
-    return { ok: false, error: "Not authenticated." };
-  }
-  if (!canHardDeletePositionsSettings(actor.roleKey)) {
-    return { ok: false, error: "Forbidden." };
-  }
-
-  const ctx = await resolvePositionsSettingsContext(organizationIdHint);
-  if (!ctx.ok) {
-    return {
-      ok: false,
-      error: ctx.denied === "not_authenticated" ? "Not authenticated." : "Forbidden.",
-    };
-  }
-  if (!isUuidString(positionId)) return { ok: false, error: "Invalid position id." };
-
-  const typedCode = normalizeAccessEntityKey(confirmationCode);
-  if (!typedCode) {
-    return { ok: false, error: "Type the position code to confirm permanent delete." };
-  }
-
-  try {
-    const { data: row, error: fetchErr } = await supabaseServer
-      .from("positions")
-      .select("id, code, organization_id")
-      .eq("id", positionId)
-      .eq("organization_id", ctx.organizationId)
-      .maybeSingle();
-    if (fetchErr) return { ok: false, error: fetchErr.message };
-    if (!row?.id) return { ok: false, error: "Position not found in this organization." };
-
-    const storedCode = normalizeAccessEntityKey(String((row as { code?: unknown }).code ?? ""));
-    if (typedCode !== storedCode) {
-      return { ok: false, error: "Position code does not match. Permanent delete cancelled." };
-    }
-
-    const childCheck = await countAllChildPositions(positionId, ctx.organizationId);
-    if (!childCheck.ok) return { ok: false, error: childCheck.error };
-    if (childCheck.count > 0) {
-      return { ok: false, error: HARD_DELETE_BLOCKED_MSG };
-    }
-
-    const assignmentCheck = await countPositionAssignmentReferences(positionId, ctx.organizationId);
-    if (!assignmentCheck.ok) return { ok: false, error: assignmentCheck.error };
-    if (assignmentCheck.count > 0) {
-      return { ok: false, error: HARD_DELETE_BLOCKED_MSG };
-    }
-
-    const { error: deleteErr } = await supabaseServer
-      .from("positions")
-      .delete()
-      .eq("id", positionId)
-      .eq("organization_id", ctx.organizationId);
-    if (deleteErr) {
-      if (deleteErr.code === "23503") {
-        return { ok: false, error: HARD_DELETE_BLOCKED_MSG };
-      }
-      return { ok: false, error: deleteErr.message };
-    }
-    return { ok: true };
-  } catch (e) {
-    return {
-      ok: false,
-      error: e instanceof Error ? e.message : "Permanent delete failed.",
-    };
   }
 }

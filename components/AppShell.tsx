@@ -495,6 +495,7 @@ function AppShellInner({ children }: { children: React.ReactNode }) {
           {core.groups.map((g) => {
             const ch = navChildrenForGroup(g, perms);
             if (g.id === "platform") {
+              if (!perms.isPlatformShellView) return null;
               const showTech = perms.canSeeTechDebug;
               if (ch.length === 0 && !showTech) return null;
               return (
