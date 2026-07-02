@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Archive, Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { Archive, Loader2, Pencil, Plus, RotateCcw, Save, Trash2, X } from "lucide-react";
 import { useUserRole } from "@/components/UserRoleContext";
 import {
   responsiveFormInput,
@@ -16,7 +16,9 @@ import {
   deletePositionPermanentlySettingsAction,
   getPositionsSettingsPageAccessAction,
   listPositionsForOrgSettingsAction,
+  restorePositionSettingsAction,
   updatePositionSettingsAction,
+  type PositionSettingsFilter,
   type PositionSettingsRow,
 } from "./positions-settings-actions";
 
@@ -25,6 +27,12 @@ const BTN_PRIMARY =
   "inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow transition hover:bg-primary/90 disabled:opacity-50";
 const BTN_SECONDARY =
   "inline-flex items-center justify-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium transition hover:bg-accent disabled:opacity-50";
+
+const FILTER_OPTIONS: { value: PositionSettingsFilter; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "archived", label: "Archived" },
+  { value: "all", label: "All" },
+];
 
 function collectDescendantPositionIds(
   positionId: string,
@@ -56,7 +64,20 @@ function formatTs(iso: string): string {
   return d.toLocaleString();
 }
 
-function PositionStatusBadge({ isActive }: { isActive: boolean }) {
+function PositionStatusBadge({
+  isActive,
+  isArchived,
+}: {
+  isActive: boolean;
+  isArchived: boolean;
+}) {
+  if (isArchived) {
+    return (
+      <span className="inline-flex items-center whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-300">
+        Archived
+      </span>
+    );
+  }
   return (
     <span
       className={[
@@ -79,6 +100,8 @@ export default function PositionsSettingsClient() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [canHardDeletePositions, setCanHardDeletePositions] = useState(false);
   const [positions, setPositions] = useState<PositionSettingsRow[]>([]);
+  const [activeParentOptions, setActiveParentOptions] = useState<PositionSettingsRow[]>([]);
+  const [positionFilter, setPositionFilter] = useState<PositionSettingsFilter>("active");
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -92,18 +115,20 @@ export default function PositionsSettingsClient() {
   const [pActive, setPActive] = useState(true);
   const [positionSaving, setPositionSaving] = useState(false);
   const [positionArchiveBusy, setPositionArchiveBusy] = useState(false);
+  const [positionRestoreBusyId, setPositionRestoreBusyId] = useState<string | null>(null);
   const [hardDeleteConfirmCode, setHardDeleteConfirmCode] = useState("");
   const [positionHardDeleteBusy, setPositionHardDeleteBusy] = useState(false);
 
   const orgHint = workspaceOrganizationId ?? undefined;
+  const isArchivedModal = positionModal !== "create" && positionModal?.is_archived === true;
 
   const excludedParentIds =
     positionModal !== "create" && positionModal
-      ? collectDescendantPositionIds(positionModal.id, positions)
+      ? collectDescendantPositionIds(positionModal.id, activeParentOptions)
       : new Set<string>();
 
-  const parentSelectorOptions = positions.filter((row) => {
-    if (!row.is_active) return false;
+  const parentSelectorOptions = activeParentOptions.filter((row) => {
+    if (row.is_archived || !row.is_active) return false;
     if (positionModal !== "create" && positionModal) {
       if (row.id === positionModal.id) return false;
       if (excludedParentIds.has(row.id)) return false;
@@ -111,16 +136,23 @@ export default function PositionsSettingsClient() {
     return true;
   });
 
+  const loadActiveParentOptions = useCallback(async () => {
+    const res = await listPositionsForOrgSettingsAction(orgHint, "active");
+    if (res.ok) {
+      setActiveParentOptions(res.rows);
+    }
+  }, [orgHint]);
+
   const loadPositions = useCallback(async () => {
     setPositionsLoading(true);
-    const res = await listPositionsForOrgSettingsAction(orgHint);
+    const res = await listPositionsForOrgSettingsAction(orgHint, positionFilter);
     setPositionsLoading(false);
     if (!res.ok) {
       setError(res.error);
       return;
     }
     setPositions(res.rows);
-  }, [orgHint]);
+  }, [orgHint, positionFilter]);
 
   useEffect(() => {
     if (profileLoading) return;
@@ -136,14 +168,19 @@ export default function PositionsSettingsClient() {
         setLoading(false);
         return;
       }
-      await loadPositions();
+      await Promise.all([loadPositions(), loadActiveParentOptions()]);
       if (cancelled) return;
       setLoading(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [profileLoading, orgHint, loadPositions]);
+  }, [profileLoading, orgHint, loadPositions, loadActiveParentOptions]);
+
+  useEffect(() => {
+    if (loading || accessDenied) return;
+    void loadPositions();
+  }, [positionFilter, loading, accessDenied, loadPositions]);
 
   function openCreatePosition() {
     setPCode("");
@@ -155,6 +192,7 @@ export default function PositionsSettingsClient() {
     setHardDeleteConfirmCode("");
     setError(null);
     setMessage(null);
+    void loadActiveParentOptions();
     setPositionModal("create");
   }
 
@@ -168,7 +206,39 @@ export default function PositionsSettingsClient() {
     setHardDeleteConfirmCode("");
     setError(null);
     setMessage(null);
+    void loadActiveParentOptions();
     setPositionModal(row);
+  }
+
+  async function refreshAfterMutation() {
+    await Promise.all([loadPositions(), loadActiveParentOptions()]);
+  }
+
+  async function handleRestorePosition(row: PositionSettingsRow) {
+    if (
+      !window.confirm(
+        `Restore position «${row.title}» (${row.code})? It will become active again.`,
+      )
+    ) {
+      return;
+    }
+    setPositionRestoreBusyId(row.id);
+    setError(null);
+    setMessage(null);
+    try {
+      const res = await restorePositionSettingsAction(row.id, orgHint);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setMessage("Position restored.");
+      if (positionModal && positionModal !== "create" && positionModal.id === row.id) {
+        setPositionModal(null);
+      }
+      await refreshAfterMutation();
+    } finally {
+      setPositionRestoreBusyId(null);
+    }
   }
 
   async function handleHardDeletePosition() {
@@ -198,7 +268,7 @@ export default function PositionsSettingsClient() {
       setMessage("Position permanently deleted.");
       setPositionModal(null);
       setHardDeleteConfirmCode("");
-      await loadPositions();
+      await refreshAfterMutation();
     } finally {
       setPositionHardDeleteBusy(false);
     }
@@ -208,7 +278,7 @@ export default function PositionsSettingsClient() {
     if (positionModal === "create" || !positionModal) return;
     if (
       !window.confirm(
-        `Archive position «${positionModal.title}» (${positionModal.code})? It will be deactivated and hidden from this list.`,
+        `Archive position «${positionModal.title}» (${positionModal.code})? It will be deactivated and moved to the Archived view.`,
       )
     ) {
       return;
@@ -222,7 +292,7 @@ export default function PositionsSettingsClient() {
       }
       setMessage("Position archived.");
       setPositionModal(null);
-      await loadPositions();
+      await refreshAfterMutation();
     } finally {
       setPositionArchiveBusy(false);
     }
@@ -230,6 +300,7 @@ export default function PositionsSettingsClient() {
 
   async function submitPosition(e: React.FormEvent) {
     e.preventDefault();
+    if (isArchivedModal) return;
     setPositionSaving(true);
     setError(null);
     setMessage(null);
@@ -266,7 +337,7 @@ export default function PositionsSettingsClient() {
         setMessage("Position updated.");
       }
       setPositionModal(null);
-      await loadPositions();
+      await refreshAfterMutation();
     } finally {
       setPositionSaving(false);
     }
@@ -359,6 +430,27 @@ export default function PositionsSettingsClient() {
           </button>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Show
+          </span>
+          {FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={[
+                "rounded-md border px-3 py-1.5 text-sm font-medium transition",
+                positionFilter === opt.value
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground",
+              ].join(" ")}
+              onClick={() => setPositionFilter(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         <div className="rounded-xl border border-border bg-card shadow-sm">
           {positionsLoading ? (
             <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
@@ -378,53 +470,100 @@ export default function PositionsSettingsClient() {
                     <th className="px-3 py-2.5">Description</th>
                     <th className="px-3 py-2.5">Updated</th>
                     <th className="px-3 py-2.5">Created</th>
-                    <th className="w-[100px] px-3 py-2.5 text-right">Actions</th>
+                    <th className="w-[120px] px-3 py-2.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {positions.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-3 py-12 text-center text-sm text-muted-foreground">
-                        No positions defined yet. Create your first position to use in people
-                        assignments.
+                        {positionFilter === "archived"
+                          ? "No archived positions."
+                          : positionFilter === "all"
+                            ? "No positions defined yet."
+                            : "No active positions. Create your first position to use in people assignments."}
                       </td>
                     </tr>
                   ) : (
                     positions.map((row) => (
-                      <tr key={row.id} className="border-b border-border last:border-0">
-                        <td className="px-3 py-2 align-middle font-medium">{row.title}</td>
-                        <td className="px-3 py-2 align-middle font-mono text-xs text-muted-foreground">
+                      <tr
+                        key={row.id}
+                        className={[
+                          "border-b border-border last:border-0",
+                          row.is_archived ? "bg-muted/20 text-muted-foreground" : "",
+                        ].join(" ")}
+                      >
+                        <td
+                          className={[
+                            "px-3 py-2 align-middle font-medium",
+                            row.is_archived ? "opacity-70" : "",
+                          ].join(" ")}
+                        >
+                          {row.title}
+                        </td>
+                        <td className="px-3 py-2 align-middle font-mono text-xs opacity-80">
                           {row.code}
                         </td>
-                        <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                        <td className="px-3 py-2 align-middle text-xs opacity-80">
                           {row.parent_position_title ?? "Top level"}
                         </td>
-                        <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                        <td className="px-3 py-2 align-middle text-xs opacity-80">
                           {row.level != null ? row.level : "—"}
                         </td>
                         <td className="px-3 py-2 align-middle">
-                          <PositionStatusBadge isActive={row.is_active} />
+                          <PositionStatusBadge
+                            isActive={row.is_active}
+                            isArchived={row.is_archived}
+                          />
                         </td>
-                        <td className="px-3 py-2 align-middle text-xs text-muted-foreground">
+                        <td className="px-3 py-2 align-middle text-xs opacity-80">
                           <span className="line-clamp-2" title={row.description ?? undefined}>
                             {row.description ?? "—"}
                           </span>
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 align-middle text-xs text-muted-foreground">
+                        <td className="whitespace-nowrap px-3 py-2 align-middle text-xs opacity-80">
                           {formatTs(row.updated_at)}
                         </td>
-                        <td className="whitespace-nowrap px-3 py-2 align-middle text-xs text-muted-foreground">
+                        <td className="whitespace-nowrap px-3 py-2 align-middle text-xs opacity-80">
                           {formatTs(row.created_at)}
                         </td>
                         <td className="px-3 py-2 align-middle text-right">
-                          <button
-                            type="button"
-                            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                            aria-label="Edit position"
-                            onClick={() => openEditPosition(row)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
+                          <div className="inline-flex items-center gap-1">
+                            {row.is_archived ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                  aria-label="View archived position"
+                                  onClick={() => openEditPosition(row)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-md p-1.5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400"
+                                  aria-label="Restore position"
+                                  disabled={positionRestoreBusyId === row.id}
+                                  onClick={() => void handleRestorePosition(row)}
+                                >
+                                  {positionRestoreBusyId === row.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <RotateCcw className="h-4 w-4" />
+                                  )}
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                                aria-label="Edit position"
+                                onClick={() => openEditPosition(row)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -445,7 +584,11 @@ export default function PositionsSettingsClient() {
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-bold">
-                {positionModal === "create" ? "New position" : "Edit position"}
+                {positionModal === "create"
+                  ? "New position"
+                  : isArchivedModal
+                    ? "Archived position"
+                    : "Edit position"}
               </h2>
               <button
                 type="button"
@@ -455,174 +598,283 @@ export default function PositionsSettingsClient() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={(e) => void submitPosition(e)} className="space-y-4">
-              <div>
-                <label className={LABEL} htmlFor="pos-code">
-                  Code <span className="text-destructive">*</span>
-                </label>
-                <input
-                  id="pos-code"
-                  className={responsiveFormInput}
-                  value={pCode}
-                  onChange={(e) => setPCode(e.target.value)}
-                  required
-                  autoComplete="off"
-                />
-              </div>
-              <div>
-                <label className={LABEL} htmlFor="pos-title">
-                  Title <span className="text-destructive">*</span>
-                </label>
-                <input
-                  id="pos-title"
-                  className={responsiveFormInput}
-                  value={pTitle}
-                  onChange={(e) => setPTitle(e.target.value)}
-                  required
-                />
-              </div>
-              <div>
-                <label className={LABEL} htmlFor="pos-desc">
-                  Description
-                </label>
-                <textarea
-                  id="pos-desc"
-                  className={`${responsiveFormInput} min-h-[80px] py-2`}
-                  value={pDesc}
-                  onChange={(e) => setPDesc(e.target.value)}
-                  maxLength={300}
-                />
-              </div>
-              <div>
-                <label className={LABEL} htmlFor="pos-parent">
-                  Parent position
-                </label>
-                <select
-                  id="pos-parent"
-                  className={responsiveFormInput}
-                  value={pParentId}
-                  onChange={(e) => setPParentId(e.target.value)}
-                >
-                  <option value="">Top-level position / No parent</option>
-                  {parentSelectorOptions.map((row) => (
-                    <option key={row.id} value={row.id}>
-                      {row.title} ({row.code})
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Sets the reporting line for this position in the organization chart.
-                </p>
-              </div>
-              <div>
-                <label className={LABEL} htmlFor="pos-level">
-                  Level
-                </label>
-                <input
-                  id="pos-level"
-                  type="number"
-                  className={responsiveFormInput}
-                  value={pLevel}
-                  onChange={(e) => setPLevel(e.target.value)}
-                  placeholder="Optional"
-                  step={1}
-                />
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Optional. Used for ordering job titles only. Reporting lines are set by the
-                  parent position.
-                </p>
-              </div>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={pActive}
-                  onChange={(e) => setPActive(e.target.checked)}
-                />
-                Active
-              </label>
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                <div className="min-w-0 space-y-3">
-                  {positionModal !== "create" ? (
-                    <>
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                        disabled={
-                          positionArchiveBusy || positionSaving || positionHardDeleteBusy
-                        }
-                        onClick={() => void handleArchivePosition()}
-                      >
-                        {positionArchiveBusy ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Archive className="h-4 w-4" />
-                        )}
-                        Archive position
-                      </button>
-                      {canHardDeletePositions ? (
-                        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
-                          <p className="text-xs text-destructive">
-                            Permanent delete is only for setup mistakes. It is blocked if this
-                            position has children or assignment history.
-                          </p>
-                          <label className={`${LABEL} mt-3`} htmlFor="pos-hard-delete-code">
-                            Type <span className="font-mono">{positionModal.code}</span> to confirm
-                          </label>
-                          <input
-                            id="pos-hard-delete-code"
-                            className={responsiveFormInput}
-                            value={hardDeleteConfirmCode}
-                            onChange={(e) => setHardDeleteConfirmCode(e.target.value)}
-                            autoComplete="off"
-                            placeholder={positionModal.code}
-                          />
-                          <button
-                            type="button"
-                            className="mt-2 inline-flex items-center gap-2 rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
-                            disabled={
-                              positionHardDeleteBusy ||
-                              positionSaving ||
-                              positionArchiveBusy ||
-                              hardDeleteConfirmCode.trim() !== positionModal.code
-                            }
-                            onClick={() => void handleHardDeletePosition()}
-                          >
-                            {positionHardDeleteBusy ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                            Delete permanently
-                          </button>
-                        </div>
-                      ) : null}
-                    </>
-                  ) : null}
+            {isArchivedModal ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  This position is archived. Restore it to use in assignments or edit details.
                 </div>
-                <div className="flex flex-wrap justify-end gap-2">
+                <dl className="space-y-3 text-sm">
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Code
+                    </dt>
+                    <dd className="mt-1 font-mono">{positionModal.code}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Title
+                    </dt>
+                    <dd className="mt-1">{positionModal.title}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Parent
+                    </dt>
+                    <dd className="mt-1">{positionModal.parent_position_title ?? "Top level"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Level
+                    </dt>
+                    <dd className="mt-1">{positionModal.level != null ? positionModal.level : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Status
+                    </dt>
+                    <dd className="mt-1">
+                      <PositionStatusBadge
+                        isActive={positionModal.is_active}
+                        isArchived={positionModal.is_archived}
+                      />
+                    </dd>
+                  </div>
+                </dl>
+                <div className="flex flex-wrap items-start justify-between gap-3 pt-2">
+                  <div className="min-w-0 space-y-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-md border border-emerald-500/50 bg-background px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-500/10 disabled:opacity-50 dark:text-emerald-400"
+                      disabled={
+                        positionRestoreBusyId === positionModal.id || positionHardDeleteBusy
+                      }
+                      onClick={() => void handleRestorePosition(positionModal)}
+                    >
+                      {positionRestoreBusyId === positionModal.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4" />
+                      )}
+                      Restore position
+                    </button>
+                    {canHardDeletePositions ? (
+                      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                        <p className="text-xs text-destructive">
+                          Permanent delete is only for setup mistakes. It is blocked if this
+                          position has children or assignment history.
+                        </p>
+                        <label className={`${LABEL} mt-3`} htmlFor="pos-hard-delete-code">
+                          Type <span className="font-mono">{positionModal.code}</span> to confirm
+                        </label>
+                        <input
+                          id="pos-hard-delete-code"
+                          className={responsiveFormInput}
+                          value={hardDeleteConfirmCode}
+                          onChange={(e) => setHardDeleteConfirmCode(e.target.value)}
+                          autoComplete="off"
+                          placeholder={positionModal.code}
+                        />
+                        <button
+                          type="button"
+                          className="mt-2 inline-flex items-center gap-2 rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                          disabled={
+                            positionHardDeleteBusy ||
+                            positionRestoreBusyId === positionModal.id ||
+                            hardDeleteConfirmCode.trim() !== positionModal.code
+                          }
+                          onClick={() => void handleHardDeletePosition()}
+                        >
+                          {positionHardDeleteBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                          Delete permanently
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                   <button
                     type="button"
                     className={BTN_SECONDARY}
                     onClick={() => setPositionModal(null)}
-                    disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}
+                    disabled={positionRestoreBusyId === positionModal.id || positionHardDeleteBusy}
                   >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className={BTN_PRIMARY}
-                    disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}
-                  >
-                    {positionSaving ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Save className="h-4 w-4" />
-                    )}
-                    Save
+                    Close
                   </button>
                 </div>
               </div>
-            </form>
+            ) : (
+              <form onSubmit={(e) => void submitPosition(e)} className="space-y-4">
+                <div>
+                  <label className={LABEL} htmlFor="pos-code">
+                    Code <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    id="pos-code"
+                    className={responsiveFormInput}
+                    value={pCode}
+                    onChange={(e) => setPCode(e.target.value)}
+                    required
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <label className={LABEL} htmlFor="pos-title">
+                    Title <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    id="pos-title"
+                    className={responsiveFormInput}
+                    value={pTitle}
+                    onChange={(e) => setPTitle(e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label className={LABEL} htmlFor="pos-desc">
+                    Description
+                  </label>
+                  <textarea
+                    id="pos-desc"
+                    className={`${responsiveFormInput} min-h-[80px] py-2`}
+                    value={pDesc}
+                    onChange={(e) => setPDesc(e.target.value)}
+                    maxLength={300}
+                  />
+                </div>
+                <div>
+                  <label className={LABEL} htmlFor="pos-parent">
+                    Parent position
+                  </label>
+                  <select
+                    id="pos-parent"
+                    className={responsiveFormInput}
+                    value={pParentId}
+                    onChange={(e) => setPParentId(e.target.value)}
+                  >
+                    <option value="">Top-level position / No parent</option>
+                    {parentSelectorOptions.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.title} ({row.code})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Sets the reporting line for this position in the organization chart.
+                  </p>
+                </div>
+                <div>
+                  <label className={LABEL} htmlFor="pos-level">
+                    Level
+                  </label>
+                  <input
+                    id="pos-level"
+                    type="number"
+                    className={responsiveFormInput}
+                    value={pLevel}
+                    onChange={(e) => setPLevel(e.target.value)}
+                    placeholder="Optional"
+                    step={1}
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Optional. Used for ordering job titles only. Reporting lines are set by the
+                    parent position.
+                  </p>
+                </div>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={pActive}
+                    onChange={(e) => setPActive(e.target.checked)}
+                  />
+                  Active
+                </label>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                  <div className="min-w-0 space-y-3">
+                    {positionModal !== "create" ? (
+                      <>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded-md border border-destructive/50 bg-background px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                          disabled={
+                            positionArchiveBusy || positionSaving || positionHardDeleteBusy
+                          }
+                          onClick={() => void handleArchivePosition()}
+                        >
+                          {positionArchiveBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Archive className="h-4 w-4" />
+                          )}
+                          Archive position
+                        </button>
+                        {canHardDeletePositions ? (
+                          <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                            <p className="text-xs text-destructive">
+                              Permanent delete is only for setup mistakes. It is blocked if this
+                              position has children or assignment history.
+                            </p>
+                            <label className={`${LABEL} mt-3`} htmlFor="pos-hard-delete-code-active">
+                              Type <span className="font-mono">{positionModal.code}</span> to
+                              confirm
+                            </label>
+                            <input
+                              id="pos-hard-delete-code-active"
+                              className={responsiveFormInput}
+                              value={hardDeleteConfirmCode}
+                              onChange={(e) => setHardDeleteConfirmCode(e.target.value)}
+                              autoComplete="off"
+                              placeholder={positionModal.code}
+                            />
+                            <button
+                              type="button"
+                              className="mt-2 inline-flex items-center gap-2 rounded-md border border-destructive bg-destructive px-3 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+                              disabled={
+                                positionHardDeleteBusy ||
+                                positionSaving ||
+                                positionArchiveBusy ||
+                                hardDeleteConfirmCode.trim() !== positionModal.code
+                              }
+                              onClick={() => void handleHardDeletePosition()}
+                            >
+                              {positionHardDeleteBusy ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              Delete permanently
+                            </button>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      className={BTN_SECONDARY}
+                      onClick={() => setPositionModal(null)}
+                      disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className={BTN_PRIMARY}
+                      disabled={positionSaving || positionArchiveBusy || positionHardDeleteBusy}
+                    >
+                      {positionSaving ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4" />
+                      )}
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       ) : null}

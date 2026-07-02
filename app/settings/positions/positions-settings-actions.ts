@@ -30,6 +30,11 @@ const ARCHIVE_CHILD_BLOCK_MSG =
 const HARD_DELETE_BLOCKED_MSG =
   "This position has assignment history or child positions and cannot be permanently deleted. Archive it instead.";
 
+const RESTORE_PARENT_BLOCKED_MSG =
+  "This position cannot be restored because its parent position is archived or inactive. Restore or change the parent first.";
+
+export type PositionSettingsFilter = "active" | "archived" | "all";
+
 export type PositionSettingsRow = {
   id: string;
   organization_id: string;
@@ -41,6 +46,9 @@ export type PositionSettingsRow = {
   parent_position_title: string | null;
   sort_order: number | null;
   is_active: boolean;
+  /** Set when soft-deleted (archived). Null for non-archived rows. */
+  deleted_at: string | null;
+  is_archived: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -375,8 +383,70 @@ export async function getPositionsSettingsPageAccessAction(
   };
 }
 
+function normalizePositionSettingsFilter(
+  filter: PositionSettingsFilter | string | null | undefined,
+): PositionSettingsFilter {
+  if (filter === "archived" || filter === "all") return filter;
+  return "active";
+}
+
+function mapPositionSettingsRows(
+  data: unknown[] | null,
+  titleByIdOverride?: Map<string, string>,
+): PositionSettingsRow[] {
+  const titleById = titleByIdOverride ?? new Map<string, string>();
+  if (!titleByIdOverride) {
+    for (const raw of data ?? []) {
+      const r = raw as unknown as Record<string, unknown>;
+      const id = String(r.id ?? "").trim();
+      if (id) titleById.set(id, String(r.title ?? "").trim());
+    }
+  }
+
+  return (data ?? [])
+    .map((raw) => {
+      const r = raw as unknown as Record<string, unknown>;
+      const id = String(r.id ?? "").trim();
+      if (!id) return null;
+      const levelRaw = r.level;
+      const level =
+        levelRaw != null && Number.isInteger(Number(levelRaw)) ? Number(levelRaw) : null;
+      const sortOrderRaw = r.sort_order;
+      const sort_order =
+        sortOrderRaw != null && Number.isInteger(Number(sortOrderRaw))
+          ? Number(sortOrderRaw)
+          : null;
+      const parentRaw = r.parent_position_id;
+      const parent_position_id =
+        parentRaw != null && String(parentRaw).trim() ? String(parentRaw).trim() : null;
+      const deletedAtRaw = r.deleted_at;
+      const deleted_at =
+        deletedAtRaw != null && String(deletedAtRaw).trim() ? String(deletedAtRaw).trim() : null;
+      return {
+        id,
+        organization_id: String(r.organization_id ?? "").trim(),
+        code: String(r.code ?? "").trim(),
+        title: String(r.title ?? "").trim(),
+        description: r.description != null ? String(r.description) : null,
+        level,
+        parent_position_id,
+        parent_position_title: parent_position_id
+          ? (titleById.get(parent_position_id) ?? null)
+          : null,
+        sort_order,
+        is_active: Boolean(r.is_active),
+        deleted_at,
+        is_archived: deleted_at != null,
+        created_at: r.created_at != null ? String(r.created_at) : "",
+        updated_at: r.updated_at != null ? String(r.updated_at) : "",
+      };
+    })
+    .filter((x): x is PositionSettingsRow => x != null);
+}
+
 export async function listPositionsForOrgSettingsAction(
   organizationIdHint?: string | null,
+  filter: PositionSettingsFilter = "active",
 ): Promise<{ ok: true; rows: PositionSettingsRow[] } | { ok: false; error: string }> {
   const ctx = await resolvePositionsSettingsContext(organizationIdHint);
   if (!ctx.ok) {
@@ -386,62 +456,42 @@ export async function listPositionsForOrgSettingsAction(
     };
   }
 
+  const normalizedFilter = normalizePositionSettingsFilter(filter);
+
   try {
-    const { data, error } = await supabaseServer
+    let query = supabaseServer
       .from("positions")
       .select(
-        "id, organization_id, code, title, description, level, parent_position_id, sort_order, is_active, created_at, updated_at",
+        "id, organization_id, code, title, description, level, parent_position_id, sort_order, is_active, deleted_at, created_at, updated_at",
       )
-      .eq("organization_id", ctx.organizationId)
-      .is("deleted_at", null)
+      .eq("organization_id", ctx.organizationId);
+
+    if (normalizedFilter === "active") {
+      query = query.is("deleted_at", null);
+    } else if (normalizedFilter === "archived") {
+      query = query.not("deleted_at", "is", null);
+    }
+
+    const { data, error } = await query
       .order("sort_order", { ascending: true, nullsFirst: false })
       .order("title", { ascending: true })
       .order("code", { ascending: true });
     if (error) return { ok: false, error: error.message };
 
+    const { data: titleRows, error: titleErr } = await supabaseServer
+      .from("positions")
+      .select("id, title")
+      .eq("organization_id", ctx.organizationId);
+    if (titleErr) return { ok: false, error: titleErr.message };
+
     const titleById = new Map<string, string>();
-    for (const raw of data ?? []) {
+    for (const raw of titleRows ?? []) {
       const r = raw as unknown as Record<string, unknown>;
       const id = String(r.id ?? "").trim();
       if (id) titleById.set(id, String(r.title ?? "").trim());
     }
 
-    const rows: PositionSettingsRow[] = (data ?? [])
-      .map((raw) => {
-        const r = raw as unknown as Record<string, unknown>;
-        const id = String(r.id ?? "").trim();
-        if (!id) return null;
-        const levelRaw = r.level;
-        const level =
-          levelRaw != null && Number.isInteger(Number(levelRaw)) ? Number(levelRaw) : null;
-        const sortOrderRaw = r.sort_order;
-        const sort_order =
-          sortOrderRaw != null && Number.isInteger(Number(sortOrderRaw))
-            ? Number(sortOrderRaw)
-            : null;
-        const parentRaw = r.parent_position_id;
-        const parent_position_id =
-          parentRaw != null && String(parentRaw).trim() ? String(parentRaw).trim() : null;
-        return {
-          id,
-          organization_id: String(r.organization_id ?? "").trim(),
-          code: String(r.code ?? "").trim(),
-          title: String(r.title ?? "").trim(),
-          description: r.description != null ? String(r.description) : null,
-          level,
-          parent_position_id,
-          parent_position_title: parent_position_id
-            ? (titleById.get(parent_position_id) ?? null)
-            : null,
-          sort_order,
-          is_active: Boolean(r.is_active),
-          created_at: r.created_at != null ? String(r.created_at) : "",
-          updated_at: r.updated_at != null ? String(r.updated_at) : "",
-        };
-      })
-      .filter((x): x is PositionSettingsRow => x != null);
-
-    return { ok: true, rows };
+    return { ok: true, rows: mapPositionSettingsRows(data, titleById) };
   } catch (e) {
     return {
       ok: false,
@@ -623,6 +673,74 @@ export async function updatePositionSettingsAction(
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Update failed." };
+  }
+}
+
+export async function restorePositionSettingsAction(
+  positionId: string,
+  organizationIdHint?: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ctx = await resolvePositionsSettingsContext(organizationIdHint);
+  if (!ctx.ok) {
+    return {
+      ok: false,
+      error: ctx.denied === "not_authenticated" ? "Not authenticated." : "Forbidden.",
+    };
+  }
+  if (!isUuidString(positionId)) return { ok: false, error: "Invalid position id." };
+
+  try {
+    const { data: row, error: fetchErr } = await supabaseServer
+      .from("positions")
+      .select("id, deleted_at, parent_position_id")
+      .eq("id", positionId)
+      .eq("organization_id", ctx.organizationId)
+      .maybeSingle();
+    if (fetchErr) return { ok: false, error: fetchErr.message };
+    if (!row?.id) return { ok: false, error: "Position not found in this organization." };
+
+    const r = row as { deleted_at?: string | null; parent_position_id?: string | null };
+    if (r.deleted_at == null) {
+      return { ok: false, error: "Only archived positions can be restored." };
+    }
+
+    const parentPositionId =
+      r.parent_position_id != null && String(r.parent_position_id).trim()
+        ? String(r.parent_position_id).trim()
+        : null;
+    if (parentPositionId) {
+      const { data: parentRow, error: parentErr } = await supabaseServer
+        .from("positions")
+        .select("id, organization_id, deleted_at, is_active")
+        .eq("id", parentPositionId)
+        .eq("organization_id", ctx.organizationId)
+        .maybeSingle();
+      if (parentErr) return { ok: false, error: parentErr.message };
+      if (!parentRow?.id) {
+        return { ok: false, error: RESTORE_PARENT_BLOCKED_MSG };
+      }
+      const parent = parentRow as { deleted_at?: string | null; is_active?: boolean };
+      if (parent.deleted_at != null || !parent.is_active) {
+        return { ok: false, error: RESTORE_PARENT_BLOCKED_MSG };
+      }
+    }
+
+    const now = new Date().toISOString();
+    const { error } = await supabaseServer
+      .from("positions")
+      .update({
+        deleted_at: null,
+        is_active: true,
+        updated_at: now,
+        updated_by: ctx.actorProfileId,
+      })
+      .eq("id", positionId)
+      .eq("organization_id", ctx.organizationId)
+      .not("deleted_at", "is", null);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Restore failed." };
   }
 }
 
